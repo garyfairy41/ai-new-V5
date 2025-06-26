@@ -788,17 +788,13 @@ app.post('/webhook/voice', async (req, res) => {
             case 'connect_ai':
             default:
                 console.log('🤖 Connecting to AI agent');
-                // Start a stream to capture audio
-                const start = twiml.start();
-                start.stream({
-                    url: WEBSOCKET_URL,
-                    track: 'both_tracks'
+                // Connect bidirectional stream for conversation
+                const connect = twiml.connect();
+                connect.stream({
+                    url: WEBSOCKET_URL
                 });
                 break;
         }
-        
-        // Keep the call alive
-        twiml.pause({ length: 60 });
         
         res.type('text/xml');
         res.send(twiml.toString());
@@ -817,13 +813,10 @@ app.post('/webhook/voice', async (req, res) => {
         
         // Fallback to default response
         const twiml = new twilio.twiml.VoiceResponse();
-        const start = twiml.start();
-        start.stream({
-            url: WEBSOCKET_URL,
-            track: 'both_tracks'
+        const connect = twiml.connect();
+        connect.stream({
+            url: WEBSOCKET_URL
         });
-        
-        twiml.pause({ length: 60 });
         
         res.type('text/xml');
         res.send(twiml.toString());
@@ -921,15 +914,11 @@ app.post('/webhook/ivr-selection', async (req, res) => {
         // Connect to the selected agent
         const twiml = new twilio.twiml.VoiceResponse();
         
-        // Start a stream to capture audio
-        const start = twiml.start();
-        start.stream({
-            url: WEBSOCKET_URL,
-            track: 'both_tracks'
+        // Connect bidirectional stream for conversation
+        const connect = twiml.connect();
+        connect.stream({
+            url: WEBSOCKET_URL
         });
-        
-        // Keep the call alive
-        twiml.pause({ length: 60 });
         
         res.type('text/xml');
         res.send(twiml.toString());
@@ -984,15 +973,11 @@ app.post('/webhook/ivr-fallback', async (req, res) => {
             language: agent.language_code || 'en-US'
         }, 'I didn\'t receive any input. Connecting you to our general assistant.');
         
-        // Start a stream to capture audio
-        const start = twiml.start();
-        start.stream({
-            url: WEBSOCKET_URL,
-            track: 'both_tracks'
+        // Connect bidirectional stream for conversation
+        const connect = twiml.connect();
+        connect.stream({
+            url: WEBSOCKET_URL
         });
-        
-        // Keep the call alive
-        twiml.pause({ length: 60 });
         
         res.type('text/xml');
         res.send(twiml.toString());

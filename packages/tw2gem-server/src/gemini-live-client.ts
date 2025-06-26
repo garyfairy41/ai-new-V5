@@ -25,11 +25,6 @@ export class GeminiLiveClient {
             url.searchParams.append('key', server.apiKey);
         }
         
-        // Add model to URL if provided
-        if (options.setup?.model) {
-            url.searchParams.append('model', options.setup.model);
-        }
-        
         // Connect to Gemini Live
         this.socket = new WebSocket(url.toString());
         
