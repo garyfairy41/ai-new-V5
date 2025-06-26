@@ -83,18 +83,6 @@ export class GeminiLiveClient {
         const obj: BidiGenerateContentServerMessage = JSON.parse(text);
         if (obj.setupComplete) {
             this.isReady = true;
-            
-            // Send initial greeting trigger to ensure Gemini speaks first
-            setTimeout(() => {
-                this.sendClientContent({
-                    turns: [{
-                        role: 'user',
-                        parts: [{ text: 'Please greet the caller now. Start the conversation with a warm, professional greeting.' }]
-                    }],
-                    turnComplete: true
-                });
-            }, 100);
-            
             return this.onReady?.();
         }
 
