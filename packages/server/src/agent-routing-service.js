@@ -514,13 +514,21 @@ export class AgentRoutingService {
     /**
      * Log call routing decision
      */
-    async logCallRouting(callSid, agentId, routingReason) {
+    async logCallRouting(callSid, agentId, routingReason, callData = {}) {
         try {
+            // Use the default profile ID from the CSV file
+            const defaultProfileId = '5d5f69d3-0cb7-42db-9b10-1246da9c4c22';
+            
             const { error } = await supabase
                 .from('call_logs')
                 .insert({
                     call_sid: callSid,
                     agent_id: agentId,
+                    profile_id: defaultProfileId, // Add the profile ID
+                    phone_number_from: callData.From || '+15133007212', // Default phone number
+                    phone_number_to: callData.To || '+18186006909', // Default phone number
+                    direction: callData.Direction || 'inbound', // Default direction
+                    status: 'pending', // Use status instead of call_status
                     routing_reason: routingReason,
                     created_at: new Date().toISOString()
                 });
