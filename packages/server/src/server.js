@@ -247,7 +247,7 @@ class Tw2GemServer extends TwilioWebSocketServer {
         // Handle Gemini connection events
         geminiClient.onReady = () => {
             console.log('🤖 Gemini Live client connected and ready');
-            // Initial greeting moved to 'start' case in handleTwilioMessage
+            // Gemini will automatically greet the caller based on system instructions
         };
         
         geminiClient.onError = (error) => {
@@ -509,24 +509,8 @@ class Tw2GemServer extends TwilioWebSocketServer {
                 
                 console.log('🤖 Gemini Live client ready for audio');
                 
-                // Send initial greeting to start the conversation
-                // This is now in the 'start' case where we have the streamSid
-                console.log('🔄 Sending initial greeting...');
-                try {
-                    socket.geminiLive.sendClientContent({
-                        turns: [{
-                            role: 'user',
-                            parts: [{ text: 'Please greet the caller now. Start the conversation with a warm, professional greeting.' }]
-                        }],
-                        turnComplete: true
-                    });
-                    
-                    console.log(`🎤 Gemini will initiate conversation for stream: ${socket.twilioStreamSid}`);
-                } catch (error) {
-                    console.error('❌ Error sending initial greeting:', error);
-                    // Try to recreate the Gemini client if there was an error
-                    this.setupGeminiClient(socket);
-                }
+                // Gemini will automatically greet the caller based on system instructions
+                console.log(`🎤 Gemini ready for conversation on stream: ${socket.twilioStreamSid}`);
                 break;
                 
             case 'media':
