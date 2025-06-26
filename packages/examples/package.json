@@ -15,8 +15,7 @@
         "email": "seba.morales.lorca@gmail.com"
     },
     "dependencies": {
-        "@tw2gem/twilio-server": "1.0.1",
-        "@tw2gem/server": "1.0.1"
+
     },
     "devDependencies": {
         "ts-node": "^10.9.2",

@@ -1,7 +1,7 @@
-import { TwilioWebSocketServer } from './packages/twilio-server/dist/index.js';
-import { GeminiLiveClient } from './packages/gemini-live-client/dist/index.js';
+import { TwilioWebSocketServer } from '../../twilio-server/dist/index.js';
+import { GeminiLiveClient } from '../../gemini-live-client/dist/index.js';
 // Import from dist instead of src
-import { FunctionCallHandler } from './packages/tw2gem-server/dist/function-handler.js';
+import { FunctionCallHandler } from '../../tw2gem-server/dist/function-handler.js';
 import express from 'express';
 import cors from 'cors';
 import { createServer as createHttpServer } from 'http';
@@ -726,7 +726,8 @@ server.onClose = (socket, event) => {
 import twilio from 'twilio';
 import { AgentRoutingService } from './agent-routing-service.js';
 
-const WEBHOOK_URL = process.env.WEBHOOK_URL || `https://work-2-jgeklehodwtesuya.prod-runtime.all-hands.dev`;
+const WEBHOOK_URL = process.env.WEBHOOK_URL || `https://work-2-ygemuivqzkvdpqpb.prod-runtime.all-hands.dev`;
+const WEBSOCKET_URL = process.env.WEBSOCKET_URL || `wss://work-2-ygemuivqzkvdpqpb.prod-runtime.all-hands.dev`;
 
 // Initialize agent routing service
 const agentRouter = new AgentRoutingService();
@@ -790,7 +791,7 @@ app.post('/webhook/voice', async (req, res) => {
                 // Start a stream to capture audio
                 const start = twiml.start();
                 start.stream({
-                    url: process.env.WEBHOOK_URL ? `wss://${process.env.WEBHOOK_URL.replace('https://', '')}` : `wss://work-2-pxyrgovifxspwgkg.prod-runtime.all-hands.dev`,
+                    url: WEBSOCKET_URL,
                     track: 'both_tracks'
                 });
                 break;
@@ -818,7 +819,7 @@ app.post('/webhook/voice', async (req, res) => {
         const twiml = new twilio.twiml.VoiceResponse();
         const start = twiml.start();
         start.stream({
-            url: process.env.WEBHOOK_URL ? `wss://${process.env.WEBHOOK_URL.replace('https://', '')}` : `wss://work-2-jgeklehodwtesuya.prod-runtime.all-hands.dev`,
+            url: WEBSOCKET_URL,
             track: 'both_tracks'
         });
         
@@ -923,7 +924,7 @@ app.post('/webhook/ivr-selection', async (req, res) => {
         // Start a stream to capture audio
         const start = twiml.start();
         start.stream({
-            url: process.env.WEBHOOK_URL ? `wss://${process.env.WEBHOOK_URL.replace('https://', '')}` : `wss://work-2-pxyrgovifxspwgkg.prod-runtime.all-hands.dev`,
+            url: WEBSOCKET_URL,
             track: 'both_tracks'
         });
         
@@ -986,7 +987,7 @@ app.post('/webhook/ivr-fallback', async (req, res) => {
         // Start a stream to capture audio
         const start = twiml.start();
         start.stream({
-            url: process.env.WEBHOOK_URL ? `wss://${process.env.WEBHOOK_URL.replace('https://', '')}` : `wss://work-2-pxyrgovifxspwgkg.prod-runtime.all-hands.dev`,
+            url: WEBSOCKET_URL,
             track: 'both_tracks'
         });
         
@@ -1234,7 +1235,7 @@ app.get('/test/twilio', async (req, res) => {
                 account_sid: account.sid,
                 account_status: account.status,
                 webhook_url: `${WEBHOOK_URL}/webhook/voice`,
-                stream_url: `wss://work-2-jgeklehodwtesuya.prod-runtime.all-hands.dev`
+                stream_url: WEBSOCKET_URL
             }
         });
     } catch (error) {
@@ -1320,7 +1321,7 @@ app.get('/test/system', async (req, res) => {
                 status: 'pass',
                 account_status: account.status,
                 webhook_url: `${WEBHOOK_URL}/webhook/voice`,
-                stream_url: `wss://work-2-jgeklehodwtesuya.prod-runtime.all-hands.dev`
+                stream_url: WEBSOCKET_URL
             };
         } else {
             results.tests.twilio = {
@@ -1374,7 +1375,7 @@ app.get('/test/system', async (req, res) => {
         results.tests.websocket = {
             status: 'pass',
             port: PORT,
-            url: `wss://work-2-jgeklehodwtesuya.prod-runtime.all-hands.dev:${PORT}`,
+            url: `${WEBSOCKET_URL}:${PORT}`,
             message: 'Ready for Twilio streams'
         };
     } catch (error) {
@@ -3852,7 +3853,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     console.log('🚀 Starting AI Calling Backend Server...');
     console.log(`📞 TW2GEM Server running on port ${PORT}`);
     console.log(`🔗 Twilio webhook URL: ${WEBHOOK_URL}/webhook/voice`);
-    console.log(`🎵 Twilio stream URL: wss://work-2-jgeklehodwtesuya.prod-runtime.all-hands.dev`);
+    console.log(`🎵 Twilio stream URL: ${WEBSOCKET_URL}`);
     console.log(`🤖 Gemini API: ${process.env.GEMINI_API_KEY ? '✅ Configured' : '❌ Not configured'}`);
     console.log(`🏥 Health check: ${WEBHOOK_URL}/health`);
     console.log(`🧪 System tests: ${WEBHOOK_URL}/test/system`);

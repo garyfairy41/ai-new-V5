@@ -12,7 +12,6 @@
     "clean": "echo 'No clean step required'"
   },
   "dependencies": {
-    "@tw2gem/tw2gem-server": "1.0.1",
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.50.0",
     "cors": "^2.8.5",

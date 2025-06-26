@@ -81,9 +81,13 @@ function runCommand(command, args, cwd, name) {
 
 async function main() {
     try {
-        // Install backend dependencies
-        console.log('📦 Installing backend dependencies...');
-        await runCommand('npm', ['install'], __dirname, 'Backend Install');
+        // Install root dependencies
+        console.log('📦 Installing root dependencies...');
+        await runCommand('npm', ['install'], __dirname, 'Root Install');
+        
+        // Install UI dependencies
+        console.log('📦 Installing UI dependencies...');
+        await runCommand('npm', ['install'], join(__dirname, 'packages', 'ui'), 'UI Install');
 
         // Build packages
         console.log('🔨 Building packages...');
@@ -98,9 +102,9 @@ async function main() {
             }
         }
 
-        // Install frontend dependencies
-        console.log('📦 Installing frontend dependencies...');
-        await runCommand('npm', ['install'], join(__dirname, 'packages', 'ui'), 'UI Install');
+        // Install server dependencies
+        console.log('📦 Installing server dependencies...');
+        await runCommand('npm', ['install'], join(__dirname, 'packages', 'server'), 'Server Install');
 
         // Create database tables
         console.log('🗄️ Setting up database tables...');
