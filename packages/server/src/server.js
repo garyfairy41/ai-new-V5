@@ -133,7 +133,7 @@ const PORT = parseInt(process.env.PORT || '12001', 10); // WebSocket server port
 const HEALTH_PORT = PORT === 3000 ? 3001 : PORT + 1;
 
 // Validate required environment variables
-const requiredEnvVars = ['GEMINI_API_KEY'];
+const requiredEnvVars = ['GEMINI_API_KEY', 'WEBHOOK_URL', 'WEBSOCKET_URL', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingEnvVars.length > 0) {
@@ -147,7 +147,39 @@ class Tw2GemServer extends TwilioWebSocketServer {
     constructor(options) {
         super(options.serverOptions);
         this.geminiOptions = options.geminiOptions;
-        this.geminiLive = new GeminiLiveEvents();
+        // Removed redundant geminiLive property
+        
+        // Set up ping interval to keep connections alive
+        this.pingInterval = setInterval(() => {
+            this.clients.forEach(socket => {
+                if (socket.isAlive === false) {
+                    console.log('⚠️ Socket not responding to pings, terminating');
+                    return socket.terminate();
+                }
+                
+                socket.isAlive = false;
+                try {
+                    socket.ping();
+                } catch (err) {
+                    console.error('❌ Error pinging socket:', err);
+                }
+            });
+        }, 30000); // Ping every 30 seconds
+        
+        // Set up cleanup on process exit
+        const self = this;
+        process.on('SIGINT', () => {
+            console.log('Received SIGINT signal');
+            if (typeof self.cleanup === 'function') {
+                self.cleanup();
+            }
+        });
+        process.on('SIGTERM', () => {
+            console.log('Received SIGTERM signal');
+            if (typeof self.cleanup === 'function') {
+                self.cleanup();
+            }
+        });
         this.audioConverter = new AudioConverter();
 
         this.setupEventHandlers();
@@ -156,45 +188,131 @@ class Tw2GemServer extends TwilioWebSocketServer {
 
 
 
+    cleanup() {
+        console.log('🧹 Cleaning up server resources...');
+        
+        // Clear the ping interval
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
+        
+        // Close all WebSocket connections
+        this.clients.forEach(socket => {
+            try {
+                // Close Gemini client if it exists
+                if (socket.geminiLive) {
+                    try {
+                        socket.geminiLive.close();
+                    } catch (err) {
+                        // Ignore errors when closing
+                    }
+                }
+                
+                // Terminate the socket
+                socket.terminate();
+            } catch (err) {
+                console.error('❌ Error closing socket during cleanup:', err);
+            }
+        });
+        
+        console.log('✅ Server cleanup complete');
+    }
+    
+    setupGeminiClient(socket) {
+        try {
+            // Create a new Gemini Live client for this socket
+            const geminiClient = new GeminiLiveClient(this.geminiOptions);
+            
+            // Configure the Gemini client
+            this.configureGeminiClient(socket, geminiClient);
+            
+            // Store the Gemini client in the socket
+            socket.geminiLive = geminiClient;
+            
+            return geminiClient;
+        } catch (error) {
+            console.error('❌ Error creating Gemini Live client:', error);
+            return null;
+        }
+    }
+    
+    configureGeminiClient(socket, geminiClient) {
+        // Handle Gemini audio responses
+        geminiClient.onServerContent = (serverContent) => {
+            console.log('🤖 Received from Gemini:', JSON.stringify(serverContent, null, 2));
+            this.handleGeminiResponse(socket, serverContent);
+        };
+        
+        // Handle Gemini connection events
+        geminiClient.onReady = () => {
+            console.log('🤖 Gemini Live client connected and ready');
+            // Initial greeting moved to 'start' case in handleTwilioMessage
+        };
+        
+        geminiClient.onError = (error) => {
+            console.error('❌ Gemini Live client error:', error);
+            
+            // If we have a Twilio client and streamSid, send an error message to the caller
+            if (socket.twilioStreamSid) {
+                try {
+                    // Import twilio client
+                    const twilioClient = require('twilio')(
+                        process.env.TWILIO_ACCOUNT_SID,
+                        process.env.TWILIO_AUTH_TOKEN
+                    );
+                    
+                    // Try to send a message to the caller
+                    try {
+                        socket.geminiLive.sendMessage({
+                            type: 'text',
+                            text: 'I apologize, but I am experiencing technical difficulties. Please try your call again later.'
+                        });
+                    } catch (err) {
+                        console.error('❌ Error sending error message to caller:', err);
+                    }
+                    
+                    // After a short delay, end the call
+                    setTimeout(() => {
+                        twilioClient.calls(socket.callSid)
+                            .update({status: 'completed'})
+                            .then(() => console.log('📞 Call ended due to Gemini error'))
+                            .catch(err => console.error('❌ Error ending call:', err));
+                    }, 5000);
+                } catch (err) {
+                    console.error('❌ Error handling Gemini error:', err);
+                }
+            }
+        };
+    }
+    
     setupEventHandlers() {
         this.on('connection', (socket, request) => {
             console.log('📞 New WebSocket connection from Twilio');
             
+            // Set socket as alive for ping/pong
+            socket.isAlive = true;
+            
+            // Set up pong handler
+            socket.on('pong', () => {
+                socket.isAlive = true;
+            });
+            
             // Create Gemini Live client for this call
-            const geminiClient = new GeminiLiveClient(this.geminiOptions);
-            socket.geminiLive = geminiClient;
+            this.setupGeminiClient(socket);
             socket.twilioStreamSid = null;
-            
-            // Handle Gemini audio responses
-            geminiClient.onServerContent = (serverContent) => {
-                console.log('🤖 Received from Gemini:', JSON.stringify(serverContent, null, 2));
-                this.handleGeminiResponse(socket, serverContent);
-            };
-            
-            // Handle Gemini connection events
-            geminiClient.onReady = () => {
-                console.log('🤖 Gemini Live client connected and ready');
-                
-                // Send initial greeting to start the conversation
-                console.log('🔄 Sending initial greeting...');
-                geminiClient.sendMessage({
-                    type: 'text',
-                    text: 'Hello! Thank you for calling. How can I help you today?'
-                });
-            };
-            
-            geminiClient.onError = (error) => {
-                console.error('❌ Gemini Live client error:', error);
-            };
-            
-            geminiClient.onClose = (event) => {
-                console.log('📴 Gemini Live client closed:', event.reason);
-            };
             
             // Handle Twilio messages
             socket.on('message', (data) => {
                 try {
                     const message = JSON.parse(data.toString());
+                    
+                    // Make sure we have a valid socket connection
+                    if (!socket.isAlive) {
+                        console.log('⚠️ Socket not alive, marking as alive');
+                        socket.isAlive = true;
+                    }
+                    
                     this.handleTwilioMessage(socket, message);
                 } catch (error) {
                     console.error('❌ Error parsing Twilio message:', error);
@@ -203,9 +321,26 @@ class Tw2GemServer extends TwilioWebSocketServer {
 
             socket.on('close', () => {
                 console.log('📴 Twilio connection closed');
-                if (socket.geminiLive) {
-                    socket.geminiLive.close();
+                
+                // Mark socket as not alive
+                socket.isAlive = false;
+                
+                // Clean up agent mapping
+                if (socket.twilioStreamSid) {
+                    activeCallAgents.delete(socket.twilioStreamSid);
+                    console.log(`🧹 Cleaned up agent mapping for call: ${socket.twilioStreamSid}`);
                 }
+                
+                // Close Gemini connection gracefully
+                if (socket.geminiLive) {
+                    try {
+                        socket.geminiLive.close();
+                        socket.geminiLive = null;
+                    } catch (err) {
+                        console.error('❌ Error closing Gemini client on socket close:', err);
+                    }
+                }
+                
                 if (this.onClose) {
                     this.onClose(socket, {});
                 }
@@ -213,6 +348,23 @@ class Tw2GemServer extends TwilioWebSocketServer {
 
             socket.on('error', (error) => {
                 console.error('❌ Twilio WebSocket error:', error);
+                
+                // Try to recover from the error
+                try {
+                    // If we have a Gemini client, try to recreate it
+                    if (socket.geminiLive) {
+                        console.log('⚠️ Recreating Gemini client due to WebSocket error');
+                        try {
+                            socket.geminiLive.close();
+                        } catch (err) {
+                            // Ignore errors when closing
+                        }
+                        this.setupGeminiClient(socket);
+                    }
+                } catch (err) {
+                    console.error('❌ Error recovering from WebSocket error:', err);
+                }
+                
                 if (this.onError) {
                     this.onError(socket, error);
                 }
@@ -290,8 +442,8 @@ class Tw2GemServer extends TwilioWebSocketServer {
             
             // Create a function call handler
             const functionHandler = new FunctionCallHandler(
-                process.env.SUPABASE_URL || 'https://wllyticlzvtsimgefsti.supabase.co',
-                process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndsbHl0aWNsenZ0c2ltZ2Vmc3RpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTYxMDQxNiwiZXhwIjoyMDY1MTg2NDE2fQ.ffz0OVDEY8s2n_Qar0IlRig0G16zH9BAG5EyHZZyaWA'
+                process.env.SUPABASE_URL,
+                process.env.SUPABASE_SERVICE_ROLE_KEY
             );
             
             // Load Zapier integrations for this agent
@@ -326,11 +478,13 @@ class Tw2GemServer extends TwilioWebSocketServer {
         switch (message.event) {
             case 'connected':
                 console.log('🔗 Twilio connected');
+                socket.isAlive = true;
                 break;
                 
             case 'start':
                 console.log('🎬 Call started:', message.start?.streamSid);
                 socket.twilioStreamSid = message.start?.streamSid;
+                socket.isAlive = true;
                 
                 // Store the agent ID in the socket if available
                 if (message.start?.customParameters?.agent_id) {
@@ -347,14 +501,44 @@ class Tw2GemServer extends TwilioWebSocketServer {
                     this.setupGhlIntegration(socket);
                 }
                 
-                // Gemini Live client connects automatically in constructor
+                // Make sure we have a valid Gemini Live client
+                if (!socket.geminiLive) {
+                    console.log('⚠️ Creating new Gemini Live client');
+                    this.setupGeminiClient(socket);
+                }
+                
                 console.log('🤖 Gemini Live client ready for audio');
                 
-                // Gemini will speak first through the onReady event handler
-                console.log(`🎤 Gemini will initiate conversation for stream: ${socket.twilioStreamSid}`);
+                // Send initial greeting to start the conversation
+                // This is now in the 'start' case where we have the streamSid
+                console.log('🔄 Sending initial greeting...');
+                try {
+                    socket.geminiLive.sendClientContent({
+                        turns: [{
+                            role: 'user',
+                            parts: [{ text: 'Please greet the caller now. Start the conversation with a warm, professional greeting.' }]
+                        }],
+                        turnComplete: true
+                    });
+                    
+                    console.log(`🎤 Gemini will initiate conversation for stream: ${socket.twilioStreamSid}`);
+                } catch (error) {
+                    console.error('❌ Error sending initial greeting:', error);
+                    // Try to recreate the Gemini client if there was an error
+                    this.setupGeminiClient(socket);
+                }
                 break;
                 
             case 'media':
+                // Make sure socket is marked as alive
+                socket.isAlive = true;
+                
+                // Check if we have a Gemini client
+                if (!socket.geminiLive) {
+                    console.log('⚠️ No Gemini client for media event, creating one');
+                    this.setupGeminiClient(socket);
+                }
+                
                 if (socket.geminiLive && message.media?.payload) {
                     // Convert audio and send to Gemini
                     try {
@@ -368,12 +552,18 @@ class Tw2GemServer extends TwilioWebSocketServer {
                         });
                         
                         // Send audio to Gemini Live in the correct format
-                        socket.geminiLive.sendRealtimeInput({
-                            audio: {
-                                mimeType: 'audio/pcm;rate=16000',
-                                data: audioData
-                            }
-                        });
+                        try {
+                            socket.geminiLive.sendRealtimeInput({
+                                audio: {
+                                    mimeType: 'audio/pcm;rate=16000',
+                                    data: audioData
+                                }
+                            });
+                        } catch (err) {
+                            console.error('❌ Error sending audio to Gemini:', err);
+                            // Try to recreate the Gemini client
+                            this.setupGeminiClient(socket);
+                        }
                     } catch (error) {
                         console.error('❌ Audio conversion error:', error);
                     }
@@ -382,9 +572,23 @@ class Tw2GemServer extends TwilioWebSocketServer {
                 
             case 'stop':
                 console.log('🛑 Call stopped');
-                if (socket.geminiLive) {
-                    socket.geminiLive.close();
+                
+                // Clean up agent mapping
+                if (socket.twilioStreamSid) {
+                    activeCallAgents.delete(socket.twilioStreamSid);
+                    console.log(`🧹 Cleaned up agent mapping for call: ${socket.twilioStreamSid}`);
                 }
+                
+                // Close Gemini connection gracefully
+                if (socket.geminiLive) {
+                    try {
+                        socket.geminiLive.close();
+                    } catch (err) {
+                        console.error('❌ Error closing Gemini client:', err);
+                    }
+                }
+                
+                // Don't close the socket here, let Twilio handle it
                 break;
                 
             default:
@@ -453,12 +657,7 @@ class Tw2GemServer extends TwilioWebSocketServer {
 }
 
 // Gemini Live Events handler
-class GeminiLiveEvents {
-    constructor() {
-        this.onReady = null;
-        this.onClose = null;
-    }
-}
+// GeminiLiveEvents class removed as redundant - GeminiLiveClient is an event emitter itself
 
 // Create HTTP server and Express app for webhooks
 const app = express();
@@ -665,47 +864,10 @@ server.onNewCall = (socket) => {
     }
 };
 
-server.geminiLive.onReady = (socket) => {
-    console.log('🤖 Gemini Live connection ready for call:', socket.twilioStreamSid);
-    
-    const selectedAgent = socket.selectedAgent || activeCallAgents.get(socket.twilioStreamSid);
-    
-    // No need to send audio trigger - we'll use a text prompt instead
-    console.log('🤖 Gemini Live connection is ready to receive input');
-    
-    // Send initial greeting instruction after audio trigger
-    setTimeout(() => {
-        if (socket.geminiLive && socket.geminiLive.readyState === 1) {
-            let greetingPrompt = 'Please greet the caller now. Say hello and ask how you can help them today.';
-            
-            if (selectedAgent) {
-                greetingPrompt = `You are ${selectedAgent.name}, a ${selectedAgent.agent_type} AI assistant. ${selectedAgent.greeting || 'Please greet the caller warmly and ask how you can help them today.'}`;
-            }
-            
-            const initialMessage = {
-                clientContent: {
-                    turns: [{
-                        role: 'user',
-                        parts: [{ text: greetingPrompt }]
-                    }],
-                    turnComplete: true
-                }
-            };
-            socket.geminiLive.send(JSON.stringify(initialMessage));
-            console.log(`👋 Sent personalized greeting prompt to Gemini for agent: ${selectedAgent?.name || 'default'}`);
-        }
-    }, 500);
-};
+// Removed global server.geminiLive.onReady handler - each socket has its own geminiLive instance
 
-server.geminiLive.onClose = (socket) => {
-    console.log('🔌 Gemini Live connection closed for call:', socket.twilioStreamSid);
-    
-    // Clean up agent mapping
-    if (socket.twilioStreamSid) {
-        activeCallAgents.delete(socket.twilioStreamSid);
-        console.log(`🧹 Cleaned up agent mapping for call: ${socket.twilioStreamSid}`);
-    }
-};
+// Removed global server.geminiLive.onClose handler - each socket has its own geminiLive instance
+// The cleanup for activeCallAgents is now handled in the socket.on('close') handler
 
 server.onError = (socket, event) => {
     console.error('❌ Server error:', event);
@@ -726,8 +888,8 @@ server.onClose = (socket, event) => {
 import twilio from 'twilio';
 import { AgentRoutingService } from './agent-routing-service.js';
 
-const WEBHOOK_URL = process.env.WEBHOOK_URL || `https://work-2-ygemuivqzkvdpqpb.prod-runtime.all-hands.dev`;
-const WEBSOCKET_URL = process.env.WEBSOCKET_URL || `wss://work-2-ygemuivqzkvdpqpb.prod-runtime.all-hands.dev`;
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
+const WEBSOCKET_URL = process.env.WEBSOCKET_URL;
 
 // Initialize agent routing service
 const agentRouter = new AgentRoutingService();
@@ -739,6 +901,18 @@ const activeCallAgents = new Map();
 app.post('/webhook/voice', async (req, res) => {
     console.log('📞 Incoming call webhook:', req.body);
     
+    // Create a TwiML response immediately to ensure we respond quickly
+    const twiml = new twilio.twiml.VoiceResponse();
+    const connect = twiml.connect();
+    connect.stream({
+        url: WEBSOCKET_URL
+    });
+    
+    // Send the response immediately
+    res.type('text/xml');
+    res.send(twiml.toString());
+    
+    // Process the call routing asynchronously after responding
     try {
         // Route call to appropriate agent
         const routingResult = await agentRouter.routeIncomingCall(req.body);
@@ -749,77 +923,22 @@ app.post('/webhook/voice', async (req, res) => {
         
         console.log(`🎯 Routed call ${req.body.CallSid} to agent: ${selectedAgent.name} (${selectedAgent.agent_type}) - Action: ${routing.action}`);
         
-        const twiml = new twilio.twiml.VoiceResponse();
-        
-        // Handle different routing actions
-        switch (routing.action) {
-            case 'forward_call':
-                console.log(`📞 Forwarding call to ${routing.target}`);
-                twiml.dial(routing.target);
-                break;
-                
-            case 'play_ivr':
-                console.log('🎵 Playing IVR menu');
-                if (routing.menu && routing.menu.greeting_text) {
-                    // Play greeting and gather digits
-                    twiml.say({
-                        voice: 'Polly.Joanna',
-                        language: selectedAgent.language_code || 'en-US'
-                    }, routing.menu.greeting_text);
-                    
-                    // Gather digits
-                    const gather = twiml.gather({
-                        numDigits: 1,
-                        action: `/webhook/ivr-selection?agent_id=${selectedAgent.id}&call_sid=${req.body.CallSid}`,
-                        method: 'POST',
-                        timeout: 5
-                    });
-                    
-                    // Add a fallback if no input is received
-                    twiml.redirect({
-                        method: 'POST'
-                    }, `/webhook/ivr-fallback?agent_id=${selectedAgent.id}&call_sid=${req.body.CallSid}`);
-                } else {
-                    console.log('⚠️ No IVR menu configured, falling back to direct connection');
-                    // Fall through to connect_ai
-                }
-                break;
-                
-            case 'connect_ai':
-            default:
-                console.log('🤖 Connecting to AI agent');
-                // Connect bidirectional stream for conversation
-                const connect = twiml.connect();
-                connect.stream({
-                    url: WEBSOCKET_URL
-                });
-                break;
-        }
-        
-        res.type('text/xml');
-        res.send(twiml.toString());
-        
-        console.log('📞 TwiML response sent with agent routing');
+        // We've already sent the response with a stream connection
+        // Just log the routing decision for tracking purposes
+        console.log('🤖 Call connected to AI agent via WebSocket');
         
         // Log the routing decision
         await agentRouter.logCallRouting(
             req.body.CallSid, 
             selectedAgent.id, 
-            'webhook_routing'
+            'webhook_routing',
+            req.body
         );
         
     } catch (error) {
         console.error('❌ Error in webhook routing:', error);
-        
-        // Fallback to default response
-        const twiml = new twilio.twiml.VoiceResponse();
-        const connect = twiml.connect();
-        connect.stream({
-            url: WEBSOCKET_URL
-        });
-        
-        res.type('text/xml');
-        res.send(twiml.toString());
+        // We've already sent the response, so no need to send a fallback
+        console.error('Error details:', error);
     }
 });
 
@@ -927,7 +1046,8 @@ app.post('/webhook/ivr-selection', async (req, res) => {
         await agentRouter.logCallRouting(
             call_sid, 
             targetAgent.id, 
-            'ivr_selection'
+            'ivr_selection',
+            req.body
         );
         
     } catch (error) {
