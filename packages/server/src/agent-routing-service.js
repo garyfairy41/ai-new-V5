@@ -14,20 +14,20 @@ export class AgentRoutingService {
     constructor() {
         this.defaultAgent = {
             id: 'default',
-            name: 'Default AI Agent',
-            agent_type: 'general',
-            voice_name: 'Puck',
+            name: process.env.DEFAULT_AGENT_NAME || 'Default AI Agent',
+            agent_type: process.env.DEFAULT_AGENT_TYPE || 'general',
+            voice_name: process.env.DEFAULT_AGENT_VOICE || 'Puck',
             language_code: process.env.LANGUAGE_CODE || 'en-US',
-            system_instruction: process.env.SYSTEM_INSTRUCTION || 
+            system_instruction: process.env.DEFAULT_SYSTEM_INSTRUCTION || 
                 'You are a professional AI assistant for customer service calls. IMPORTANT: You MUST speak first immediately when the call connects. Start with a warm greeting like "Hello! Thank you for calling. How can I help you today?" Be helpful, polite, and efficient. Always initiate the conversation and maintain a friendly, professional tone throughout the call.',
-            greeting: 'Hello! Thank you for calling. How can I help you today?',
+            greeting: process.env.DEFAULT_AGENT_GREETING || 'Hello! Thank you for calling. How can I help you today?',
             is_active: true,
-            max_concurrent_calls: 10,
+            max_concurrent_calls: parseInt(process.env.DEFAULT_MAX_CONCURRENT_CALLS) || 10,
             call_direction: 'inbound',
-            timezone: 'America/New_York',
-            business_hours_start: '09:00',
-            business_hours_end: '17:00',
-            business_days: [1, 2, 3, 4, 5],
+            timezone: process.env.DEFAULT_TIMEZONE || 'America/New_York',
+            business_hours_start: process.env.DEFAULT_BUSINESS_HOURS_START || '09:00',
+            business_hours_end: process.env.DEFAULT_BUSINESS_HOURS_END || '17:00',
+            business_days: JSON.parse(process.env.DEFAULT_BUSINESS_DAYS || '[1,2,3,4,5]'),
             routing_type: 'direct', // direct, ivr, forward
             ivr_enabled: false,
             forward_number: null,
@@ -67,22 +67,28 @@ export class AgentRoutingService {
             
             console.log(`🔀 Routing call ${CallSid} from ${callerNumber} to ${calledNumber}`);
             
+            // Proper agent routing logic
+            let agent = null;
+            
             // 1. Try to find agent by phone number assignment
-            let agent = await this.getAgentByPhoneNumber(calledNumber);
+            agent = await this.getAgentByPhoneNumber(calledNumber);
+            console.log(`📞 Agent by phone number (${calledNumber}):`, agent ? agent.name : 'None found');
             
             if (!agent) {
                 // 2. Try to find agent by business hours and availability
                 agent = await this.getAgentByBusinessHours('inbound');
+                console.log('⏰ Agent by business hours:', agent ? agent.name : 'None found');
             }
             
             if (!agent) {
                 // 3. Try to find any active inbound agent
                 agent = await this.getActiveInboundAgent();
+                console.log('📥 Any active inbound agent:', agent ? agent.name : 'None found');
             }
             
             if (!agent) {
-                // 4. Fall back to default agent
-                console.log('⚠️ No specific agent found, using default agent');
+                // 4. Fall back to default agent ONLY if no user agents exist
+                console.log('⚠️ No user agents found, using default agent');
                 agent = this.defaultAgent;
             }
             
@@ -497,7 +503,7 @@ export class AgentRoutingService {
                 .from('call_logs')
                 .select('id')
                 .eq('agent_id', agentId)
-                .eq('call_status', 'in-progress');
+                .eq('status', 'in-progress');
 
             if (callsError) {
                 console.error('Error checking active calls:', callsError);
