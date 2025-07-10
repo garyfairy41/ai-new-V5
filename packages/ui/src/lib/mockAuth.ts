@@ -7,7 +7,7 @@ export const mockAuth = {
     // Check for admin credentials
     if (email === 'gamblerspassion@gmail.com' && password === 'AdminPass123!') {
       const mockUser = {
-        id: 'admin-user-id',
+        id: '5d5f69d3-0cb7-42db-9b10-1246da9c4c22', // Use the actual profile ID from the database
         email: 'gamblerspassion@gmail.com',
         user_metadata: {
           name: 'Admin User',
@@ -54,7 +54,9 @@ export const mockAuth = {
     }
   },
 
-  signUp: async ({ email: _email, password: _password }: { email: string; password: string }) => {
+  signUp: async ({ email, password }: { email: string; password: string }) => {
+    console.log('Mock signup attempted for:', email);
+    console.log('Password length:', password.length);
     await new Promise(resolve => setTimeout(resolve, 1000));
     return { 
       data: { user: null }, 
@@ -79,7 +81,8 @@ export const mockAuth = {
     return { data: { session: null }, error: null };
   },
 
-  resetPasswordForEmail: async (_email: string) => {
+  resetPasswordForEmail: async (email: string) => {
+    console.log('Mock password reset requested for:', email);
     await new Promise(resolve => setTimeout(resolve, 1000));
     return { 
       data: {}, 

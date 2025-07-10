@@ -71,18 +71,17 @@ export default function AppointmentsPage() {
 
     const subscription = RealtimeService.subscribeToAppointmentUpdates(
       user.id,
-      (updatedAppointment) => {
-        setAppointments(prev => 
-          prev.map(appointment => 
-            appointment.id === updatedAppointment.id ? updatedAppointment : appointment
-          )
-        );
+      () => {
+        // Reload appointments when updates occur
+        loadAppointments();
       },
-      (newAppointment) => {
-        setAppointments(prev => [newAppointment, ...prev]);
+      () => {
+        // Reload appointments when new ones are created
+        loadAppointments();
       },
-      (appointmentId) => {
-        setAppointments(prev => prev.filter(appointment => appointment.id !== appointmentId));
+      () => {
+        // Reload appointments when ones are deleted
+        loadAppointments();
       }
     );
 

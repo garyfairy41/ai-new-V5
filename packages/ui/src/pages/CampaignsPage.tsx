@@ -5,26 +5,48 @@ import {
   PauseIcon, 
   StopIcon, 
   TrashIcon,
-  DocumentArrowUpIcon,
   EyeIcon,
   PencilIcon,
-  MegaphoneIcon
+  MegaphoneIcon,
+  ChartBarIcon,
+  PhoneIcon,
+  ClockIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import { useUser, usePermissions } from '../contexts/UserContext';
 import { DatabaseService } from '../services/database';
 import { RealtimeService } from '../services/realtime';
-import type { Campaign, CampaignLead, AIAgent } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
+import type { Campaign } from '../lib/supabase';
 import toast from 'react-hot-toast';
+import CampaignFormModal from '../components/CampaignFormModal';
+import EnhancedCampaignAnalyticsModal from '../components/EnhancedCampaignAnalyticsModal';
+import LeadListModal from '../components/LeadListModal';
+import LeadManagementModal from '../components/LeadManagementModal';
+import TestCallModal from '../components/TestCallModal';
+import CampaignsTab from '../components/CampaignsTab';
+import SalesAnalyticsTab from '../components/SalesAnalyticsTab';
 
-export default function CampaignsPage() {
+function CampaignsPage() {
   const { user } = useUser();
   const { canUseOutboundDialer } = usePermissions();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Tab management
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'analytics'>('campaigns');
+  
+  // Tracking loading state for individual campaign actions
+  const [loadingCampaignId, setLoadingCampaignId] = useState<string | null>(null);
+  // Track dialer status for each campaign
+  const [dialerStatuses, setDialerStatuses] = useState<{ [key: string]: { dialerActive: boolean; dialerRunning: boolean } }>({});
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showLeadsModal, setShowLeadsModal] = useState(false);
+  const [showAddLeadsModal, setShowAddLeadsModal] = useState(false);
+  const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
+  const [showTestCallModal, setShowTestCallModal] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
-  const [campaignLeads, setCampaignLeads] = useState<CampaignLead[]>([]);
 
   useEffect(() => {
     if (user && canUseOutboundDialer) {
@@ -32,6 +54,60 @@ export default function CampaignsPage() {
       setupRealtimeSubscriptions();
     }
   }, [user, canUseOutboundDialer]);
+
+  // Smart polling: Only poll when there are campaigns with active dialers
+  useEffect(() => {
+    const campaignIds = campaigns.map((c: any) => c.id);
+    if (campaignIds.length === 0) return;
+
+    // Initial load of dialer statuses
+    loadDialerStatuses(campaignIds);
+
+    // Only set up polling if we have campaigns with active dialers
+    let interval: NodeJS.Timeout | null = null;
+    
+    const startPollingIfNeeded = () => {
+      const hasActiveDialers = Object.values(dialerStatuses).some((status: any) => status.dialerRunning);
+      
+      if (hasActiveDialers && !interval) {
+        console.log('🔄 Starting dialer status polling...');
+        interval = setInterval(async () => {
+          try {
+            const currentActiveDialers = Object.values(dialerStatuses).some((status: any) => status.dialerRunning);
+            
+            if (currentActiveDialers) {
+              console.log('🔄 Polling dialer statuses for running campaigns...');
+              await loadDialerStatuses(campaignIds);
+              // Also refresh campaign data less frequently
+              await loadCampaigns();
+            } else {
+              // No active dialers, stop polling
+              if (interval) {
+                clearInterval(interval);
+                interval = null;
+                console.log('⏹️ Stopped polling - no active dialers');
+              }
+            }
+          } catch (error) {
+            console.error('Error polling dialer statuses:', error);
+          }
+        }, 15000); // Poll every 15 seconds (less frequent)
+      } else if (!hasActiveDialers && interval) {
+        clearInterval(interval);
+        interval = null;
+        console.log('⏹️ Stopped polling - no active dialers');
+      }
+    };
+
+    // Check if we should start polling
+    startPollingIfNeeded();
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [campaigns.map((c: any) => c.id).join(','), Object.values(dialerStatuses).some((s: any) => s.dialerRunning)]); // Re-run when campaign list or dialer status changes
 
   const loadCampaigns = async () => {
     if (!user) return;
@@ -48,38 +124,343 @@ export default function CampaignsPage() {
     }
   };
 
+  const loadDialerStatuses = async (campaignIds: string[]) => {
+    try {
+      const response = await DatabaseService.getMultipleCampaignDialerStatus(campaignIds);
+      const statusMap: { [key: string]: { dialerActive: boolean; dialerRunning: boolean } } = {};
+      
+      response.statuses.forEach(status => {
+        statusMap[status.campaignId] = {
+          dialerActive: status.dialerActive,
+          dialerRunning: status.dialerRunning
+        };
+      });
+      
+      setDialerStatuses(statusMap);
+    } catch (error) {
+      console.error('Error loading dialer statuses:', error);
+    }
+  };
+
   const setupRealtimeSubscriptions = () => {
     if (!user) return;
 
     const subscription = RealtimeService.subscribeToCampaignUpdates(
       user.id,
-      (updatedCampaign) => {
-        setCampaigns(prev => 
-          prev.map(campaign => 
-            campaign.id === updatedCampaign.id ? updatedCampaign : campaign
-          )
-        );
+      () => {
+        loadCampaigns();
       },
-      (newCampaign) => {
-        setCampaigns(prev => [newCampaign, ...prev]);
+      () => {
+        loadCampaigns();
       },
-      (campaignId) => {
-        setCampaigns(prev => prev.filter(campaign => campaign.id !== campaignId));
+      () => {
+        loadCampaigns();
       }
     );
 
     return () => {
-      RealtimeService.unsubscribe(subscription);
+      if (subscription) {
+        RealtimeService.unsubscribe(subscription);
+      }
     };
   };
 
-  const handleStatusChange = async (campaignId: string, newStatus: Campaign['status']) => {
+  const handleStartCampaign = async (campaign: Campaign) => {
+    if (campaign.total_leads === 0) {
+      toast.error('Cannot start campaign without leads. Add leads first.');
+      return;
+    }
+
     try {
-      await DatabaseService.updateCampaign(campaignId, { status: newStatus });
-      toast.success(`Campaign ${newStatus}`);
+      setLoadingCampaignId(campaign.id);
+      console.log('🚀 Starting campaign:', campaign.name, 'ID:', campaign.id);
+      
+      const success = await DatabaseService.startCampaign(campaign.id);
+      if (success) {
+        toast.success(`Campaign "${campaign.name}" started!`);
+        // Update campaign status optimistically
+        setCampaigns(campaigns.map((c: any) => c.id === campaign.id ? {...c, status: 'active'} : c));
+        // Update dialer status immediately
+        setDialerStatuses((prev: any) => ({
+          ...prev,
+          [campaign.id]: { dialerActive: true, dialerRunning: true }
+        }));
+        // Then refresh to get actual data
+        loadCampaigns();
+      } else {
+        toast.error('Failed to start campaign - no response from server');
+      }
     } catch (error) {
-      console.error('Error updating campaign status:', error);
-      toast.error('Failed to update campaign status');
+      console.error('💥 Error starting campaign:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      toast.error(`Failed to start campaign: ${errorMessage}`);
+    } finally {
+      setLoadingCampaignId(null);
+    }
+  };
+
+  const handlePauseCampaign = async (campaign: Campaign) => {
+    try {
+      setLoadingCampaignId(campaign.id);
+      const success = await DatabaseService.pauseCampaign(campaign.id);
+      if (success) {
+        toast.success(`Campaign "${campaign.name}" paused`);
+        // Update campaign status optimistically
+        setCampaigns(campaigns.map((c: any) => c.id === campaign.id ? {...c, status: 'paused'} : c));
+        // Update dialer status immediately
+        setDialerStatuses(prev => ({
+          ...prev,
+          [campaign.id]: { dialerActive: true, dialerRunning: false }
+        }));
+        // Then refresh to get actual data
+        loadCampaigns();
+      } else {
+        toast.error('Failed to pause campaign');
+      }
+    } catch (error) {
+      console.error('Error pausing campaign:', error);
+      toast.error('Failed to pause campaign');
+    } finally {
+      setLoadingCampaignId(null);
+    }
+  };
+
+  // Helper function to reset campaign leads status - crafty workaround
+  const resetCampaignLeadsStatus = async (campaignId: string): Promise<boolean> => {
+    try {
+      console.log('🔄 Resetting leads for campaign:', campaignId);
+      
+      // Try direct bulk update using supabase with proper auth context
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) {
+        console.error('No authenticated user found');
+        return false;
+      }
+
+      // Use supabase-admin or service role approach via API
+      try {
+        // First approach: Try API endpoint if it exists
+        const response = await fetch(`/api/campaigns/${campaignId}/reset-leads`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          }
+        });
+        
+        if (response.ok) {
+          console.log('✅ Successfully reset leads via API');
+          return true;
+        } else {
+          console.log('API endpoint not available, falling back to direct update');
+        }
+      } catch (apiError) {
+        console.log('API approach failed, trying direct update');
+      }
+
+      // Second approach: Direct update with RPC function
+      try {
+        console.log('🔧 Attempting RPC reset_campaign_leads for campaign:', campaignId);
+        const { data, error } = await supabase.rpc('reset_campaign_leads', {
+          campaign_id: campaignId
+        });
+        
+        console.log('RPC response - data:', data, 'error:', error);
+        
+        if (!error && data !== null) {
+          console.log(`✅ Successfully reset ${data} leads via RPC function`);
+          return true;
+        } else {
+          console.log('RPC function failed or returned null, error:', error);
+        }
+      } catch (rpcError) {
+        console.log('RPC approach failed with exception:', rpcError);
+      }
+
+      // Third approach: Direct table update with proper permissions
+      const { data: updatedLeads, error } = await supabase
+        .from('campaign_leads')
+        .update({ 
+          status: 'pending',
+          call_attempts: 0,
+          outcome: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('campaign_id', campaignId)
+        .select('id');
+
+      if (error) {
+        console.error('Error in direct update:', error);
+        
+        // Fourth approach: Individual updates if bulk fails
+        console.log('Bulk update failed, trying individual updates...');
+        const { data: leads, error: fetchError } = await supabase
+          .from('campaign_leads')
+          .select('id')
+          .eq('campaign_id', campaignId);
+
+        if (fetchError || !leads || leads.length === 0) {
+          console.error('Could not fetch leads for individual updates:', fetchError);
+          return false;
+        }
+
+        console.log(`Found ${leads.length} leads to reset individually`);
+
+        let successCount = 0;
+        for (const lead of leads) {
+          try {
+            const { error: updateError } = await supabase
+              .from('campaign_leads')
+              .update({
+                status: 'pending',
+                call_attempts: 0,
+                outcome: null,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', lead.id)
+              .eq('campaign_id', campaignId);
+              
+            if (!updateError) {
+              successCount++;
+            } else {
+              console.error(`Error updating lead ${lead.id}:`, updateError);
+            }
+          } catch (leadError) {
+            console.error(`Exception updating lead ${lead.id}:`, leadError);
+          }
+        }
+
+        console.log(`Successfully reset ${successCount}/${leads.length} leads individually`);
+        return successCount >= Math.floor(leads.length * 0.8);
+      } else {
+        console.log(`✅ Successfully reset ${updatedLeads?.length || 0} leads via bulk update`);
+        return true;
+      }
+    } catch (error) {
+      console.error('Exception resetting campaign leads:', error);
+      return false;
+    }
+  };
+
+  const handleRunAgain = async (campaign: Campaign) => {
+    if (!confirm(`Are you sure you want to restart the campaign "${campaign.name}"? This will reset the campaign status and allow calling leads again.`)) {
+      return;
+    }
+
+    try {
+      setLoadingCampaignId(campaign.id);
+      console.log('🔄 Restarting campaign:', campaign.name, 'ID:', campaign.id);
+      
+      // Step 1: Reset campaign status to draft and reset counters
+      const campaignSuccess = await DatabaseService.updateCampaign(campaign.id, {
+        status: 'draft',
+        leads_called: 0,
+        leads_completed: 0,
+        leads_answered: 0,
+        updated_at: new Date().toISOString()
+      });
+
+      if (!campaignSuccess) {
+        toast.error('Failed to reset campaign status');
+        return;
+      }
+
+      // Step 2: Reset all leads in the campaign to pending status
+      const leadsSuccess = await resetCampaignLeadsStatus(campaign.id);
+      
+      if (leadsSuccess) {
+        // Step 3: Automatically start the campaign after resetting
+        console.log('🚀 Auto-starting campaign after reset...');
+        const startSuccess = await DatabaseService.startCampaign(campaign.id);
+        
+        if (startSuccess) {
+          toast.success(`Campaign "${campaign.name}" has been reset and started again!`);
+          // Update campaign status optimistically to active
+          setCampaigns(campaigns.map(c => 
+            c.id === campaign.id 
+              ? {
+                  ...c, 
+                  status: 'active', 
+                  leads_called: 0, 
+                  leads_completed: 0, 
+                  leads_answered: 0
+                } 
+              : c
+          ));
+          // Update dialer status immediately
+          setDialerStatuses(prev => ({
+            ...prev,
+            [campaign.id]: { dialerActive: true, dialerRunning: true }
+          }));
+        } else {
+          // Reset worked but start failed - let user know it's ready to start manually
+          toast.success(`Campaign "${campaign.name}" has been reset. Click Start to begin calling.`);
+          // Update campaign status optimistically to draft (ready to start)
+          setCampaigns(campaigns.map(c => 
+            c.id === campaign.id 
+              ? {
+                  ...c, 
+                  status: 'draft', 
+                  leads_called: 0, 
+                  leads_completed: 0, 
+                  leads_answered: 0
+                } 
+              : c
+          ));
+        }
+        
+        // Refresh to get actual data
+        loadCampaigns();
+      } else {
+        // Leads reset failed - try to start anyway (might work if leads were already pending)
+        console.log('⚠️ Leads reset failed, but trying to start campaign anyway...');
+        try {
+          const startSuccess = await DatabaseService.startCampaign(campaign.id);
+          if (startSuccess) {
+            toast.success(`Campaign "${campaign.name}" started! (Note: leads may not have been fully reset)`);
+            setCampaigns(campaigns.map(c => 
+              c.id === campaign.id 
+                ? {
+                    ...c, 
+                    status: 'active', 
+                    leads_called: 0, 
+                    leads_completed: 0, 
+                    leads_answered: 0
+                  } 
+                : c
+            ));
+            setDialerStatuses(prev => ({
+              ...prev,
+              [campaign.id]: { dialerActive: true, dialerRunning: true }
+            }));
+            loadCampaigns();
+          } else {
+            toast.error('Failed to reset campaign leads and start campaign. Please try manually resetting leads or contact support.');
+          }
+        } catch (startError) {
+          console.error('Failed to start campaign after leads reset failure:', startError);
+          toast.error('Failed to reset campaign leads. Campaign status has been reset to draft - you can try starting it manually.');
+          // At least reset the campaign status to draft so user can try again
+          setCampaigns(campaigns.map(c => 
+            c.id === campaign.id 
+              ? {
+                  ...c, 
+                  status: 'draft', 
+                  leads_called: 0, 
+                  leads_completed: 0, 
+                  leads_answered: 0
+                } 
+              : c
+          ));
+          loadCampaigns();
+        }
+      }
+    } catch (error) {
+      console.error('💥 Error restarting campaign:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      toast.error(`Failed to restart campaign: ${errorMessage}`);
+    } finally {
+      setLoadingCampaignId(null);
     }
   };
 
@@ -91,6 +472,7 @@ export default function CampaignsPage() {
     try {
       await DatabaseService.deleteCampaign(campaignId);
       toast.success('Campaign deleted successfully');
+      loadCampaigns();
     } catch (error) {
       console.error('Error deleting campaign:', error);
       toast.error('Failed to delete campaign');
@@ -100,22 +482,52 @@ export default function CampaignsPage() {
   const handleViewLeads = async (campaign: Campaign) => {
     try {
       setSelectedCampaign(campaign);
-      const leads = await DatabaseService.getCampaignLeads(campaign.id);
-      setCampaignLeads(leads);
-      setShowLeadsModal(true);
+      if (campaign.total_leads === 0) {
+        // No leads - show add leads modal
+        setShowAddLeadsModal(true);
+      } else {
+        // Has leads - show view leads modal
+        setShowLeadsModal(true);
+      }
     } catch (error) {
       console.error('Error loading campaign leads:', error);
       toast.error('Failed to load campaign leads');
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'text-green-600 bg-green-100';
-      case 'paused': return 'text-yellow-600 bg-yellow-100';
+  const handleEditCampaign = (campaign: Campaign) => {
+    setSelectedCampaign(campaign);
+    setShowEditModal(true);
+  };
+
+  const handleViewAnalytics = (campaign: Campaign) => {
+    setSelectedCampaign(campaign);
+    setShowAnalyticsModal(true);
+  };
+
+  const getStatusColor = (campaign: Campaign, totalLeads: number) => {
+    if (totalLeads === 0) {
+      return 'text-gray-600 bg-gray-100';
+    }
+    
+    const dialerStatus = dialerStatuses[campaign.id];
+    const isDialerRunning = dialerStatus?.dialerRunning || false;
+    
+    // If dialer is actually running, show green
+    if (isDialerRunning) {
+      return 'text-green-600 bg-green-100';
+    }
+    
+    // If dialer is paused but still active
+    if (dialerStatus?.dialerActive && !isDialerRunning) {
+      return 'text-yellow-600 bg-yellow-100';
+    }
+    
+    // Otherwise use database status
+    switch (campaign.status) {
       case 'completed': return 'text-blue-600 bg-blue-100';
       case 'cancelled': return 'text-red-600 bg-red-100';
-      case 'draft': return 'text-gray-600 bg-gray-100';
+      case 'draft': return 'text-purple-600 bg-purple-100';
       default: return 'text-gray-600 bg-gray-100';
     }
   };
@@ -126,1013 +538,219 @@ export default function CampaignsPage() {
       case 'paused': return <PauseIcon className="h-4 w-4" />;
       case 'completed': return <StopIcon className="h-4 w-4" />;
       case 'cancelled': return <StopIcon className="h-4 w-4" />;
+      case 'draft': return <ClockIcon className="h-4 w-4" />;
       default: return null;
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+  const getStatusLabel = (campaign: Campaign) => {
+    const totalLeads = campaign.total_leads || 0;
+    
+    if (totalLeads === 0) {
+      return 'No Leads';
+    }
+    
+    const dialerStatus = dialerStatuses[campaign.id];
+    const isDialerRunning = dialerStatus?.dialerRunning || false;
+    
+    // If dialer is actually running, show as active
+    if (isDialerRunning) {
+      return 'Active';
+    }
+    
+    // If dialer is paused but still active
+    if (dialerStatus?.dialerActive && !isDialerRunning) {
+      return 'Paused';
+    }
+    
+    // Return appropriate status based on campaign completion
+    if (campaign.status === 'completed' || campaign.leads_called >= campaign.total_leads) {
+      return 'Completed';
+    }
+    
+    // Otherwise use database status
+    switch (campaign.status) {
+      case 'active': return 'Active';
+      case 'paused': return 'Paused';
+      case 'cancelled': return 'Cancelled';
+      case 'draft': return 'Draft';
+      default: return (campaign.status as string)?.charAt(0).toUpperCase() + (campaign.status as string)?.slice(1) || 'Unknown';
+    }
   };
 
   const calculateSuccessRate = (campaign: Campaign) => {
-    if (campaign.leads_called === 0) return 0;
+    if (!campaign.leads_called || campaign.leads_called === 0) return 0;
     return Math.round((campaign.leads_completed / campaign.leads_called) * 100);
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString();
   };
 
   if (!canUseOutboundDialer) {
     return (
-      <div className="text-center py-12">
-        <MegaphoneIcon className="mx-auto h-12 w-12 text-gray-400" />
-        <h3 className="mt-2 text-sm font-medium text-gray-900">Outbound Campaigns Not Available</h3>
-        <p className="mt-1 text-sm text-gray-500">
-          Your current plan doesn't include outbound campaign features. Please upgrade your plan to access this functionality.
-        </p>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      <div className="min-h-screen bg-gray-50 p-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            <div className="text-center">
+              <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-yellow-400" />
+              <h3 className="mt-2 text-sm font-medium text-gray-900">Access Restricted</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                You don't have permission to access the outbound dialer feature.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="sm:flex sm:items-center">
-        <div className="sm:flex-auto">
-          <h1 className="text-2xl font-semibold text-gray-900">Outbound Campaigns</h1>
-          <p className="mt-2 text-sm text-gray-700">
-            Manage your AI calling campaigns and track their performance.
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Campaigns</h1>
+          <p className="mt-2 text-sm text-gray-600">
+            Manage your outbound calling campaigns and track performance.
           </p>
         </div>
-        <div className="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
-          <button
-            type="button"
-            onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:w-auto"
-          >
-            <PlusIcon className="-ml-1 mr-2 h-5 w-5" aria-hidden="true" />
-            New Campaign
-          </button>
+
+        {/* Tab Navigation */}
+        <div className="mb-6">
+          <nav className="flex space-x-8" aria-label="Tabs">
+            <button
+              onClick={() => setActiveTab('campaigns')}
+              className={`${
+                activeTab === 'campaigns'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm`}
+            >
+              <MegaphoneIcon className="h-5 w-5 inline mr-2" />
+              Campaigns
+            </button>
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`${
+                activeTab === 'analytics'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm`}
+            >
+              <ChartBarIcon className="h-5 w-5 inline mr-2" />
+              Analytics
+            </button>
+          </nav>
         </div>
+
+        {/* Tab Content */}
+        {activeTab === 'campaigns' && (
+          <CampaignsTab
+            campaigns={campaigns}
+            dialerStatuses={dialerStatuses}
+            loadingCampaignId={loadingCampaignId}
+            onStartCampaign={handleStartCampaign}
+            onStopCampaign={handlePauseCampaign}
+            onRunAgain={handleRunAgain}
+            onViewLeads={handleViewLeads}
+            onEditCampaign={handleEditCampaign}
+            onViewAnalytics={handleViewAnalytics}
+            onDeleteCampaign={handleDeleteCampaign}
+            calculateSuccessRate={calculateSuccessRate}
+            formatDate={formatDate}
+            getStatusColor={getStatusColor}
+            getStatusIcon={getStatusIcon}
+            getStatusLabel={getStatusLabel}
+            onCreateCampaign={() => setShowCreateModal(true)}
+          />
+        )}
+
+        {activeTab === 'analytics' && (
+          <SalesAnalyticsTab />
+        )}
       </div>
 
-      {campaigns.length > 0 ? (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {campaigns.map((campaign) => (
-            <div key={campaign.id} className="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
-              <div className="p-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-medium text-gray-900 truncate">
-                    {campaign.name}
-                  </h3>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(campaign.status)}`}>
-                    {getStatusIcon(campaign.status)}
-                    <span className="ml-1 capitalize">{campaign.status}</span>
-                  </span>
-                </div>
-                
-                {campaign.description && (
-                  <p className="mt-2 text-sm text-gray-600 line-clamp-2">
-                    {campaign.description}
-                  </p>
-                )}
-
-                <div className="mt-4">
-                  <div className="flex justify-between text-sm text-gray-500">
-                    <span>Progress</span>
-                    <span>{campaign.leads_called}/{campaign.total_leads}</span>
-                  </div>
-                  <div className="mt-1 w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
-                      style={{ 
-                        width: campaign.total_leads > 0 
-                          ? `${(campaign.leads_called / campaign.total_leads) * 100}%` 
-                          : '0%' 
-                      }}
-                    ></div>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-500">Success Rate</p>
-                    <p className="text-lg font-semibold text-gray-900">
-                      {calculateSuccessRate(campaign)}%
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Created</p>
-                    <p className="text-sm text-gray-900">{formatDate(campaign.created_at)}</p>
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <p className="text-sm text-gray-500">Caller ID</p>
-                  <p className="text-sm text-gray-900 font-mono">{campaign.caller_id}</p>
-                </div>
-
-                <div className="mt-6 flex space-x-2">
-                  <button 
-                    onClick={() => handleViewLeads(campaign)}
-                    className="flex-1 bg-blue-600 text-white text-sm font-medium py-2 px-3 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                  >
-                    <EyeIcon className="h-4 w-4 inline mr-1" />
-                    View Leads
-                  </button>
-                  <button className="flex-1 bg-gray-100 text-gray-700 text-sm font-medium py-2 px-3 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
-                    <PencilIcon className="h-4 w-4 inline mr-1" />
-                    Edit
-                  </button>
-                </div>
-
-                <div className="mt-3 flex space-x-2">
-                  {campaign.status === 'draft' && (
-                    <button 
-                      onClick={() => handleStatusChange(campaign.id, 'active')}
-                      className="flex-1 bg-green-100 text-green-700 text-sm font-medium py-2 px-3 rounded-md hover:bg-green-200 transition-colors"
-                    >
-                      <PlayIcon className="h-4 w-4 inline mr-1" />
-                      Start
-                    </button>
-                  )}
-                  {campaign.status === 'active' && (
-                    <button 
-                      onClick={() => handleStatusChange(campaign.id, 'paused')}
-                      className="flex-1 bg-yellow-100 text-yellow-700 text-sm font-medium py-2 px-3 rounded-md hover:bg-yellow-200 transition-colors"
-                    >
-                      <PauseIcon className="h-4 w-4 inline mr-1" />
-                      Pause
-                    </button>
-                  )}
-                  {campaign.status === 'paused' && (
-                    <button 
-                      onClick={() => handleStatusChange(campaign.id, 'active')}
-                      className="flex-1 bg-green-100 text-green-700 text-sm font-medium py-2 px-3 rounded-md hover:bg-green-200 transition-colors"
-                    >
-                      <PlayIcon className="h-4 w-4 inline mr-1" />
-                      Resume
-                    </button>
-                  )}
-                  <button 
-                    onClick={() => handleDeleteCampaign(campaign.id)}
-                    className="flex-1 bg-red-100 text-red-700 text-sm font-medium py-2 px-3 rounded-md hover:bg-red-200 transition-colors"
-                  >
-                    <TrashIcon className="h-4 w-4 inline mr-1" />
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="text-center py-12">
-          <MegaphoneIcon className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No campaigns yet</h3>
-          <p className="mt-1 text-sm text-gray-500">
-            Get started by creating your first AI calling campaign.
-          </p>
-          <div className="mt-6">
-            <button
-              type="button"
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              <PlusIcon className="-ml-1 mr-2 h-5 w-5" aria-hidden="true" />
-              Create Campaign
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Create Campaign Modal */}
+      {/* Modals */}
       {showCreateModal && (
-        <CreateCampaignModal 
+        <CampaignFormModal
           onClose={() => setShowCreateModal(false)}
-          onSuccess={loadCampaigns}
-        />
-      )}
-
-      {/* Campaign Leads Modal */}
-      {showLeadsModal && selectedCampaign && (
-        <CampaignLeadsModal
-          campaign={selectedCampaign}
-          leads={campaignLeads}
-          onClose={() => {
-            setShowLeadsModal(false);
-            setSelectedCampaign(null);
-            setCampaignLeads([]);
+          onSuccess={() => {
+            setShowCreateModal(false);
+            loadCampaigns();
           }}
         />
       )}
+
+      {showEditModal && selectedCampaign && (
+        <CampaignFormModal
+          campaign={selectedCampaign}
+          onClose={() => {
+            setShowEditModal(false);
+            setSelectedCampaign(null);
+          }}
+          onSuccess={() => {
+            setShowEditModal(false);
+            setSelectedCampaign(null);
+            loadCampaigns();
+          }}
+        />
+      )}
+
+      {showLeadsModal && selectedCampaign && (
+        <LeadListModal
+          campaignId={selectedCampaign.id}
+          campaignName={selectedCampaign.name}
+          onClose={() => {
+            setShowLeadsModal(false);
+            setSelectedCampaign(null);
+          }}
+          onEdit={(lead) => {
+            // Handle lead editing if needed
+            console.log('Edit lead:', lead);
+          }}
+        />
+      )}
+
+      {showAddLeadsModal && selectedCampaign && (
+        <LeadManagementModal
+          campaignId={selectedCampaign.id}
+          campaignName={selectedCampaign.name}
+          onClose={() => {
+            setShowAddLeadsModal(false);
+            setSelectedCampaign(null);
+          }}
+          onSuccess={() => {
+            setShowAddLeadsModal(false);
+            setSelectedCampaign(null);
+            loadCampaigns();
+          }}
+        />
+      )}
+
+      {showAnalyticsModal && selectedCampaign && (
+        <EnhancedCampaignAnalyticsModal
+          isOpen={showAnalyticsModal}
+          onClose={() => {
+            setShowAnalyticsModal(false);
+            setSelectedCampaign(null);
+          }}
+          campaign={selectedCampaign}
+        />
+      )}
+
+      {showTestCallModal && selectedCampaign && (
+        <TestCallModal
+          isOpen={showTestCallModal}
+          onClose={() => {
+            setShowTestCallModal(false);
+            setSelectedCampaign(null);
+          }}
+          campaign={selectedCampaign}
+        />
+      )}
     </div>
   );
 }
 
-// Create Campaign Modal Component
-function CreateCampaignModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
-  const { user } = useUser();
-  const [loading, setLoading] = useState(false);
-  const [agents, setAgents] = useState<AIAgent[]>([]);
-  const [currentStep, setCurrentStep] = useState(1);
-  const [leads, setLeads] = useState<any[]>([]);
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    agent_id: '',
-    caller_id: '+18553947135', // Default from Twilio settings
-    max_concurrent_calls: 1,
-    call_timeout_seconds: 30,
-    retry_attempts: 3,
-    retry_delay_minutes: 60,
-    start_time: '09:00',
-    end_time: '17:00',
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-    days_of_week: [1, 2, 3, 4, 5], // Monday to Friday
-    scheduled_start_date: '',
-    scheduled_end_date: '',
-    custom_system_instruction: '',
-    custom_voice_name: 'Puck'
-  });
-
-  useEffect(() => {
-    loadAgents();
-    loadDefaultSettings();
-  }, []);
-
-  const loadAgents = async () => {
-    if (!user) return;
-    try {
-      const agentsData = await DatabaseService.getAIAgents(user.id);
-      setAgents(agentsData.filter(agent => agent.is_active));
-      
-      // Auto-select first agent if only one available
-      if (agentsData.length === 1) {
-        setFormData(prev => ({ ...prev, agent_id: agentsData[0].id }));
-      }
-    } catch (error) {
-      console.error('Error loading agents:', error);
-    }
-  };
-
-  const loadDefaultSettings = async () => {
-    if (!user) return;
-    try {
-      const settings = await DatabaseService.getUserSettings(user.id);
-      if (settings?.twilio_phone_number) {
-        setFormData(prev => ({ ...prev, caller_id: settings.twilio_phone_number }));
-      }
-    } catch (error) {
-      console.error('Error loading settings:', error);
-    }
-  };
-
-  const campaignTemplates = [
-    {
-      name: 'Sales Outreach',
-      description: 'Cold calling for lead generation and sales',
-      agent_type: 'sales',
-      max_concurrent_calls: 3,
-      call_timeout_seconds: 45,
-      retry_attempts: 2
-    },
-    {
-      name: 'Customer Service Follow-up',
-      description: 'Follow up with existing customers',
-      agent_type: 'customer_service',
-      max_concurrent_calls: 2,
-      call_timeout_seconds: 60,
-      retry_attempts: 1
-    },
-    {
-      name: 'Appointment Reminders',
-      description: 'Automated appointment reminder calls',
-      agent_type: 'appointment_booking',
-      max_concurrent_calls: 5,
-      call_timeout_seconds: 30,
-      retry_attempts: 3
-    },
-    {
-      name: 'Survey Campaign',
-      description: 'Customer satisfaction surveys',
-      agent_type: 'survey',
-      max_concurrent_calls: 2,
-      call_timeout_seconds: 90,
-      retry_attempts: 1
-    }
-  ];
-
-  const applyTemplate = (template: typeof campaignTemplates[0]) => {
-    const matchingAgent = agents.find(agent => agent.agent_type === template.agent_type);
-    setFormData(prev => ({
-      ...prev,
-      name: template.name,
-      description: template.description,
-      agent_id: matchingAgent?.id || prev.agent_id,
-      max_concurrent_calls: template.max_concurrent_calls,
-      call_timeout_seconds: template.call_timeout_seconds,
-      retry_attempts: template.retry_attempts
-    }));
-  };
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target?.result as string;
-        const lines = text.split('\n').filter(line => line.trim());
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        
-        const phoneIndex = headers.findIndex(h => h.includes('phone') || h.includes('number'));
-        const firstNameIndex = headers.findIndex(h => h.includes('first') || h.includes('fname'));
-        const lastNameIndex = headers.findIndex(h => h.includes('last') || h.includes('lname'));
-        const emailIndex = headers.findIndex(h => h.includes('email'));
-        const companyIndex = headers.findIndex(h => h.includes('company') || h.includes('business'));
-
-        const parsedLeads = lines.slice(1).map((line, index) => {
-          const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
-          return {
-            id: `temp-${index}`,
-            phone_number: values[phoneIndex] || '',
-            first_name: values[firstNameIndex] || '',
-            last_name: values[lastNameIndex] || '',
-            email: values[emailIndex] || '',
-            company: values[companyIndex] || '',
-            status: 'pending'
-          };
-        }).filter(lead => lead.phone_number);
-
-        setLeads(parsedLeads);
-        toast.success(`Loaded ${parsedLeads.length} leads from CSV`);
-      } catch (error) {
-        console.error('Error parsing CSV:', error);
-        toast.error('Error parsing CSV file. Please check the format.');
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const validateForm = () => {
-    if (!formData.name.trim()) {
-      toast.error('Campaign name is required');
-      return false;
-    }
-    if (!formData.agent_id) {
-      toast.error('Please select an AI agent');
-      return false;
-    }
-    if (!formData.caller_id.trim()) {
-      toast.error('Caller ID is required');
-      return false;
-    }
-    if (currentStep === 2 && leads.length === 0) {
-      toast.error('Please upload leads or add them manually');
-      return false;
-    }
-    return true;
-  };
-
-  const handleNext = () => {
-    if (currentStep === 1 && validateForm()) {
-      setCurrentStep(2);
-    } else if (currentStep === 2 && validateForm()) {
-      setCurrentStep(3);
-    }
-  };
-
-  const handleBack = () => {
-    setCurrentStep(Math.max(1, currentStep - 1));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user || !validateForm()) return;
-
-    setLoading(true);
-    try {
-      // Create campaign
-      const campaign = await DatabaseService.createCampaign({
-        ...formData,
-        profile_id: user.id,
-        status: 'draft',
-        priority: 'normal' as const,
-        custom_voice_name: formData.custom_voice_name as Campaign['custom_voice_name'],
-        // Convert empty strings to null for timestamp fields
-        scheduled_start_date: formData.scheduled_start_date || undefined,
-        scheduled_end_date: formData.scheduled_end_date || undefined,
-        // Initialize lead counters
-        total_leads: 0,
-        leads_called: 0,
-        leads_answered: 0,
-        leads_completed: 0
-      });
-
-      // Add leads to campaign
-      if (campaign && leads.length > 0) {
-        for (const lead of leads) {
-          await DatabaseService.createCampaignLead({
-            campaign_id: campaign.id,
-            phone_number: lead.phone_number,
-            first_name: lead.first_name,
-            last_name: lead.last_name,
-            email: lead.email,
-            company: lead.company,
-            status: 'pending',
-            priority: 'normal',
-            call_attempts: 0,
-            do_not_call: false
-          });
-        }
-      }
-      
-      toast.success(`Campaign created successfully with ${leads.length} leads`);
-      onSuccess();
-      onClose();
-    } catch (error) {
-      console.error('Error creating campaign:', error);
-      toast.error('Failed to create campaign');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Removed unused function
-
-  const downloadCSVTemplate = () => {
-    const csvContent = [
-      'phone_number,first_name,last_name,email,company',
-      '+1234567890,John,Doe,john.doe@example.com,Acme Corp',
-      '+1234567891,Jane,Smith,jane.smith@example.com,Tech Solutions',
-      '+1234567892,Bob,Johnson,bob.johnson@example.com,Marketing Inc'
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'campaign_leads_template.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    toast.success('CSV template downloaded!');
-  };
-
-  // Removed unused function
-
-  // Removed unused function
-
-  return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-10 mx-auto p-6 border max-w-4xl shadow-lg rounded-lg bg-white">
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-semibold text-gray-900">Create New Campaign</h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              ✕
-            </button>
-          </div>
-          
-          {/* Progress Steps */}
-          <div className="flex items-center mb-6">
-            {[1, 2, 3].map((step) => (
-              <div key={step} className="flex items-center">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                  step <= currentStep 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-gray-200 text-gray-600'
-                }`}>
-                  {step}
-                </div>
-                <div className={`ml-2 text-sm font-medium ${
-                  step <= currentStep ? 'text-blue-600' : 'text-gray-500'
-                }`}>
-                  {step === 1 && 'Campaign Details'}
-                  {step === 2 && 'Add Leads'}
-                  {step === 3 && 'Review & Create'}
-                </div>
-                {step < 3 && (
-                  <div className={`mx-4 h-0.5 w-16 ${
-                    step < currentStep ? 'bg-blue-600' : 'bg-gray-200'
-                  }`} />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <form onSubmit={currentStep === 3 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }}>
-          {/* Step 1: Campaign Details */}
-          {currentStep === 1 && (
-            <div className="space-y-6">
-              {/* Campaign Templates */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-3">Quick Start Templates</label>
-                <div className="grid grid-cols-2 gap-3">
-                  {campaignTemplates.map((template) => (
-                    <button
-                      key={template.name}
-                      type="button"
-                      onClick={() => applyTemplate(template)}
-                      className="p-3 text-left border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
-                    >
-                      <div className="font-medium text-gray-900">{template.name}</div>
-                      <div className="text-sm text-gray-500">{template.description}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Campaign Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Q1 Sales Outreach"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">AI Agent *</label>
-                  <select
-                    required
-                    value={formData.agent_id}
-                    onChange={(e) => setFormData({ ...formData, agent_id: e.target.value })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select an AI Agent</option>
-                    {agents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>
-                        {agent.name} - {agent.agent_type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())} ({agent.voice_name})
-                      </option>
-                    ))}
-                  </select>
-                  {agents.length === 0 && (
-                    <p className="mt-1 text-sm text-red-500">
-                      No active agents available. Please create and activate an AI agent first.
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Description</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  rows={3}
-                  placeholder="Brief description of the campaign..."
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Caller ID *</label>
-                  <input
-                    type="tel"
-                    required
-                    value={formData.caller_id}
-                    onChange={(e) => setFormData({ ...formData, caller_id: e.target.value })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="+1 (555) 123-4567"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Start Time</label>
-                  <input
-                    type="time"
-                    value={formData.start_time}
-                    onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">End Time</label>
-                  <input
-                    type="time"
-                    value={formData.end_time}
-                    onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Timezone</label>
-                  <select
-                    value={formData.timezone}
-                    onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="UTC">UTC</option>
-                    <option value="America/New_York">Eastern Time</option>
-                    <option value="America/Chicago">Central Time</option>
-                    <option value="America/Denver">Mountain Time</option>
-                    <option value="America/Los_Angeles">Pacific Time</option>
-                    <option value="Europe/London">London</option>
-                    <option value="Europe/Paris">Paris</option>
-                    <option value="Asia/Tokyo">Tokyo</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Days of Week</label>
-                  <div className="grid grid-cols-7 gap-2">
-                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
-                      <label key={day} className="flex flex-col items-center">
-                        <input
-                          type="checkbox"
-                          checked={formData.days_of_week.includes(index)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setFormData({
-                                ...formData,
-                                days_of_week: [...formData.days_of_week, index].sort()
-                              });
-                            } else {
-                              setFormData({
-                                ...formData,
-                                days_of_week: formData.days_of_week.filter(d => d !== index)
-                              });
-                            }
-                          }}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                        />
-                        <span className="mt-1 text-xs text-gray-700">{day}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Max Concurrent Calls</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="10"
-                    value={formData.max_concurrent_calls}
-                    onChange={(e) => setFormData({ ...formData, max_concurrent_calls: parseInt(e.target.value) })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Call Timeout (seconds)</label>
-                  <input
-                    type="number"
-                    min="15"
-                    max="120"
-                    value={formData.call_timeout_seconds}
-                    onChange={(e) => setFormData({ ...formData, call_timeout_seconds: parseInt(e.target.value) })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Retry Attempts</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="5"
-                    value={formData.retry_attempts}
-                    onChange={(e) => setFormData({ ...formData, retry_attempts: parseInt(e.target.value) })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Add Leads */}
-          {currentStep === 2 && (
-            <div className="space-y-6">
-              <div>
-                <h4 className="text-lg font-medium text-gray-900 mb-4">Add Leads to Campaign</h4>
-                
-                {/* CSV Upload */}
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                  <DocumentArrowUpIcon className="mx-auto h-12 w-12 text-gray-400" />
-                  <div className="mt-4">
-                    <label htmlFor="csv-upload" className="cursor-pointer">
-                      <span className="mt-2 block text-sm font-medium text-gray-900">
-                        Upload CSV file with leads
-                      </span>
-                      <span className="mt-1 block text-sm text-gray-500">
-                        CSV should include columns: phone_number, first_name, last_name, email, company
-                      </span>
-                    </label>
-                    <input
-                      id="csv-upload"
-                      type="file"
-                      accept=".csv"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                    <div className="mt-3 flex items-center justify-center space-x-3">
-                      <button
-                        type="button"
-                        onClick={() => document.getElementById('csv-upload')?.click()}
-                        className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                      >
-                        Choose File
-                      </button>
-                      <span className="text-gray-400">or</span>
-                      <button
-                        type="button"
-                        onClick={downloadCSVTemplate}
-                        className="inline-flex items-center px-4 py-2 border border-blue-300 shadow-sm text-sm font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100"
-                      >
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Download Template
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Leads Preview */}
-                {leads.length > 0 && (
-                  <div className="mt-6">
-                    <h5 className="text-md font-medium text-gray-900 mb-3">
-                      Loaded Leads ({leads.length})
-                    </h5>
-                    <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-md">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {leads.slice(0, 10).map((lead, index) => (
-                            <tr key={index}>
-                              <td className="px-3 py-2 text-sm text-gray-900">{lead.phone_number}</td>
-                              <td className="px-3 py-2 text-sm text-gray-900">
-                                {lead.first_name} {lead.last_name}
-                              </td>
-                              <td className="px-3 py-2 text-sm text-gray-900">{lead.email}</td>
-                              <td className="px-3 py-2 text-sm text-gray-900">{lead.company}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {leads.length > 10 && (
-                        <div className="px-3 py-2 text-sm text-gray-500 bg-gray-50">
-                          ... and {leads.length - 10} more leads
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: Review & Create */}
-          {currentStep === 3 && (
-            <div className="space-y-6">
-              <h4 className="text-lg font-medium text-gray-900 mb-4">Review Campaign</h4>
-              
-              <div className="bg-gray-50 rounded-lg p-6 space-y-4">
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <h5 className="font-medium text-gray-900">Campaign Details</h5>
-                    <dl className="mt-2 space-y-1">
-                      <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Name:</dt>
-                        <dd className="text-sm text-gray-900">{formData.name}</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Agent:</dt>
-                        <dd className="text-sm text-gray-900">
-                          {agents.find(a => a.id === formData.agent_id)?.name}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Caller ID:</dt>
-                        <dd className="text-sm text-gray-900">{formData.caller_id}</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Schedule:</dt>
-                        <dd className="text-sm text-gray-900">
-                          {formData.start_time} - {formData.end_time}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
-                  
-                  <div>
-                    <h5 className="font-medium text-gray-900">Call Settings</h5>
-                    <dl className="mt-2 space-y-1">
-                      <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Max Concurrent:</dt>
-                        <dd className="text-sm text-gray-900">{formData.max_concurrent_calls}</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Timeout:</dt>
-                        <dd className="text-sm text-gray-900">{formData.call_timeout_seconds}s</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Retry Attempts:</dt>
-                        <dd className="text-sm text-gray-900">{formData.retry_attempts}</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Total Leads:</dt>
-                        <dd className="text-sm text-gray-900">{leads.length}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Navigation Buttons */}
-          <div className="flex justify-between pt-6 border-t border-gray-200">
-            <div>
-              {currentStep > 1 && (
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
-                >
-                  Back
-                </button>
-              )}
-            </div>
-            
-            <div className="flex space-x-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
-              >
-                Cancel
-              </button>
-              
-              {currentStep < 3 ? (
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-                >
-                  Next
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-50"
-                >
-                  {loading ? 'Creating...' : 'Create Campaign'}
-                </button>
-              )}
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// Campaign Leads Modal Component
-function CampaignLeadsModal({ 
-  campaign, 
-  leads, 
-  onClose 
-}: { 
-  campaign: Campaign; 
-  leads: CampaignLead[]; 
-  onClose: () => void 
-}) {
-  const getLeadStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'text-green-600 bg-green-100';
-      case 'answered': return 'text-blue-600 bg-blue-100';
-      case 'called': return 'text-yellow-600 bg-yellow-100';
-      case 'no_answer': return 'text-orange-600 bg-orange-100';
-      case 'busy': return 'text-purple-600 bg-purple-100';
-      case 'failed': return 'text-red-600 bg-red-100';
-      case 'pending': return 'text-gray-600 bg-gray-100';
-      default: return 'text-gray-600 bg-gray-100';
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-10 mx-auto p-5 border w-4/5 max-w-4xl shadow-lg rounded-md bg-white">
-        <div className="mt-3">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium text-gray-900">
-              Campaign Leads: {campaign.name}
-            </h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Contact
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Phone
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Attempts
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Last Call
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Outcome
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {leads.map((lead) => (
-                  <tr key={lead.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">
-                          {lead.first_name} {lead.last_name}
-                        </div>
-                        {lead.email && (
-                          <div className="text-sm text-gray-500">{lead.email}</div>
-                        )}
-                        {lead.company && (
-                          <div className="text-sm text-gray-500">{lead.company}</div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-mono">
-                      {lead.phone_number}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getLeadStatusColor(lead.status)}`}>
-                        {lead.status.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {lead.call_attempts}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {lead.last_call_at ? new Date(lead.last_call_at).toLocaleDateString() : 'Never'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {lead.outcome || '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {leads.length === 0 && (
-            <div className="text-center py-8">
-              <DocumentArrowUpIcon className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No leads uploaded</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Upload a CSV file with leads to start this campaign.
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+export default CampaignsPage;

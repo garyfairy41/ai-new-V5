@@ -25,7 +25,7 @@ import {
   Snackbar,
   Alert
 } from '@mui/material';
-import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Code as CodeIcon } from '@mui/icons-material';
+import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon } from '@mui/icons-material';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import { JSONEditor } from './JSONEditor';
 

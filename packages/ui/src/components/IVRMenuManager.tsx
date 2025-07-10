@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { IVRMenu, IVROption, AIAgent } from '../lib/supabase';
+import { useUser } from '../contexts/UserContext';
+import type { IVRMenu, IVROption, AIAgent } from '../lib/supabase';
+
+interface IVRMenuFormData {
+  name: string;
+  greeting_text: string;
+  timeout_message: string;
+  invalid_message: string;
+  max_attempts: number;
+}
 
 interface IVRMenuManagerProps {
   agentId: string;
@@ -8,13 +16,12 @@ interface IVRMenuManagerProps {
 }
 
 const IVRMenuManager: React.FC<IVRMenuManagerProps> = ({ agentId, onClose }) => {
-  const { user } = useAuth();
+  const { user } = useUser();
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState<AIAgent[]>([]);
-  const [currentAgent, setCurrentAgent] = useState<AIAgent | null>(null);
   const [ivrMenu, setIvrMenu] = useState<IVRMenu | null>(null);
   const [ivrOptions, setIvrOptions] = useState<IVROption[]>([]);
-  const [menuFormData, setMenuFormData] = useState<Partial<IVRMenu>>({
+  const [menuFormData, setMenuFormData] = useState<IVRMenuFormData>({
     name: '',
     greeting_text: '',
     timeout_message: 'I didn\'t hear your selection. Let me connect you with our general assistant.',
@@ -25,16 +32,18 @@ const IVRMenuManager: React.FC<IVRMenuManagerProps> = ({ agentId, onClose }) => 
   // Load agent and IVR menu data
   useEffect(() => {
     const loadData = async () => {
+      if (!user) return;
+      
       setLoading(true);
       try {
         // Fetch the current agent
         const response = await fetch(`/api/agents/${agentId}`);
         if (!response.ok) throw new Error('Failed to fetch agent');
         const agent = await response.json();
-        setCurrentAgent(agent);
+        // Note: currentAgent state removed as it was unused
         
-        // Fetch all agents for options
-        const agentsResponse = await fetch('/api/agents');
+        // Fetch all agents for options with proper profile_id filtering
+        const agentsResponse = await fetch(`/api/agents?profile_id=${user.id}`);
         if (!agentsResponse.ok) throw new Error('Failed to fetch agents');
         const agentsData = await agentsResponse.json();
         setAgents(agentsData);
@@ -65,10 +74,10 @@ const IVRMenuManager: React.FC<IVRMenuManagerProps> = ({ agentId, onClose }) => 
       }
     };
     
-    if (agentId) {
+    if (agentId && user) {
       loadData();
     }
-  }, [agentId]);
+  }, [agentId, user]);
   
   const handleMenuInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;

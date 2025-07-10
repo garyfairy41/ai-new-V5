@@ -120,6 +120,25 @@ async function main() {
       updated_at: new Date().toISOString()
     });
 
+    // Campaign Calls table
+    await createTableIfNotExists('campaign_calls', {
+      id: '00000000-0000-0000-0000-000000000000',
+      call_sid: 'CA0000000000000000000000000000000',
+      campaign_id: '00000000-0000-0000-0000-000000000000',
+      lead_id: '00000000-0000-0000-0000-000000000000',
+      from_number: '+1234567890',
+      to_number: '+1987654321',
+      agent_id: null,
+      status: 'initiated',
+      duration: 0,
+      cost: 0,
+      recording_url: null,
+      transcript: null,
+      notes: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+
     // IVR Menus table
     await createTableIfNotExists('ivr_menus', {
       id: '00000000-0000-0000-0000-000000000000',
@@ -309,7 +328,7 @@ async function main() {
       'integration_settings', 'integrations', 'system_status', 'subscriptions',
       'usage_records', 'active_calls', 'appointments', 'dnc_entries',
       'zapier_integrations', 'webhook_endpoints', 'notifications',
-      'ivr_options', 'ivr_menus', 'campaign_leads', 'campaigns',
+      'ivr_options', 'ivr_menus', 'campaign_calls', 'campaign_leads', 'campaigns',
       'call_logs', 'ai_agents', 'profiles'
     ];
     

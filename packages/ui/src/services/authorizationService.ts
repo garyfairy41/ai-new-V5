@@ -1,5 +1,4 @@
 import { supabase } from '../lib/supabase';
-import type { Profile } from '../lib/supabase';
 
 export interface AuthorizationResult {
   authorized: boolean

@@ -1,7 +1,13 @@
 import type { CallLog, Campaign, Appointment, DNCEntry } from '../lib/supabase';
 
 // API base URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://work-2-xztkqihbepsagxrs.prod-runtime.all-hands.dev';
+const API_BASE_URL = typeof window !== 'undefined' && (window as any).location 
+  ? (process.env.NODE_ENV === 'production' 
+      ? (window as any).location.origin 
+      : ((window as any).location.hostname !== 'localhost')
+        ? `${(window as any).location.protocol}//${(window as any).location.hostname}:12001`
+        : 'http://localhost:12001')
+  : 'http://localhost:12001';
 
 export class ExportService {
   

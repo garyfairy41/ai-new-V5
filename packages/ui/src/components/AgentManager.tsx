@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { DatabaseService } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
 import type { AIAgent } from '../lib/supabase';
+import LeadVariablesHelper from './LeadVariablesHelper';
 
 const VOICE_OPTIONS = [
   { value: 'Puck', label: 'Puck (Male, Neutral)' },
@@ -467,6 +468,13 @@ const AgentManager: React.FC = () => {
                     />
                   </div>
                   
+                  {/* Lead Variables Helper - Show for outbound agents */}
+                  {(formData.call_direction === 'outbound' || formData.call_direction === 'both') && (
+                    <div className="md:col-span-2">
+                      <LeadVariablesHelper />
+                    </div>
+                  )}
+
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium mb-1">AI Personality & Goals</label>
                     <textarea

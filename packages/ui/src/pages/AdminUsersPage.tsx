@@ -65,7 +65,7 @@ export default function AdminUsersPage() {
       } else {
         setUsers(fetchedUsers);
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to load users');
     } finally {
       setIsLoadingUsers(false);
@@ -163,7 +163,7 @@ export default function AdminUsersPage() {
       ));
 
       toast.success(`User ${!currentStatus ? 'activated' : 'deactivated'} successfully`);
-    } catch (error) {
+    } catch {
       toast.error('Failed to update user status');
     }
   };
@@ -182,7 +182,7 @@ export default function AdminUsersPage() {
 
       setUsers(prev => prev.filter(user => user.id !== userId));
       toast.success('User deleted successfully');
-    } catch (error) {
+    } catch {
       toast.error('Failed to delete user');
     }
   };
@@ -441,7 +441,7 @@ export default function AdminUsersPage() {
                     <td className="px-6 py-4">
                       <div className="flex flex-wrap gap-1">
                         {Object.entries(user.permissions)
-                          .filter(([_, enabled]) => enabled)
+                          .filter(([, enabled]) => enabled)
                           .map(([permission]) => (
                             <span
                               key={permission}

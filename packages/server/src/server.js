@@ -1,4 +1,4 @@
-   import { TwilioWebSocketServer } from '../../twilio-server/dist/index.js';
+import { TwilioWebSocketServer } from '../../twilio-server/dist/index.js';
 import { GeminiLiveOfficial } from './gemini-live-official.js';
 // Import from dist instead of src
 import { FunctionCallHandler } from '../../tw2gem-server/dist/function-handler.js';
@@ -12,6 +12,15 @@ import Stripe from 'stripe';
 import { createObjectCsvWriter } from 'csv-writer';
 import fs from 'fs';
 import path from 'path';
+import dotenv from 'dotenv';
+import { exec } from 'child_process';
+import util from 'util';
+import twilio from 'twilio';
+import { AgentRoutingService } from './agent-routing-service.js';
+
+// Google Sheets and Lead Data Integration
+import { logLeadData, initializeGoogleSheet } from '../../../google-sheets-service.js';
+import { extractLeadDataFromTranscript } from '../../../gemini-service.js';
 // Create a simple AudioConverter class directly in this file
 class AudioConverter {
     static base64ToUint8Array(base64) {
@@ -109,11 +118,108 @@ class AudioConverter {
             return base64; // Return original as fallback
         }
     }
+    
+    static convertWavToPCM24k(wavBuffer) {
+        try {
+            // Parse WAV header to get sample rate and other info
+            const riffHeader = wavBuffer.toString('ascii', 0, 4);
+            if (riffHeader !== 'RIFF') {
+                console.error('❌ Invalid WAV file: Missing RIFF header');
+                return null;
+            }
+            
+            const waveHeader = wavBuffer.toString('ascii', 8, 12);
+            if (waveHeader !== 'WAVE') {
+                console.error('❌ Invalid WAV file: Missing WAVE header');
+                return null;
+            }
+            
+            // Find the fmt chunk to get audio format info
+            let offset = 12;
+            let fmtChunkFound = false;
+            let sampleRate = 0;
+            let channels = 0;
+            let bitsPerSample = 0;
+            let dataOffset = 0;
+            
+            while (offset < wavBuffer.length - 8) {
+                const chunkType = wavBuffer.toString('ascii', offset, offset + 4);
+                const chunkSize = wavBuffer.readUInt32LE(offset + 4);
+                
+                if (chunkType === 'fmt ') {
+                    // Parse fmt chunk
+                    const audioFormat = wavBuffer.readUInt16LE(offset + 8);
+                    channels = wavBuffer.readUInt16LE(offset + 10);
+                    sampleRate = wavBuffer.readUInt32LE(offset + 12);
+                    bitsPerSample = wavBuffer.readUInt16LE(offset + 22);
+                    
+                    console.log(`📊 WAV file info: ${sampleRate}Hz, ${channels} channels, ${bitsPerSample} bits`);
+                    
+                    if (audioFormat !== 1) {
+                        console.error('❌ Only PCM WAV files are supported');
+                        return null;
+                    }
+                    
+                    if (bitsPerSample !== 16) {
+                        console.error('❌ Only 16-bit WAV files are supported');
+                        return null;
+                    }
+                    
+                    fmtChunkFound = true;
+                } else if (chunkType === 'data') {
+                    dataOffset = offset + 8;
+                    break;
+                }
+                
+                offset += 8 + chunkSize;
+            }
+            
+            if (!fmtChunkFound || dataOffset === 0) {
+                console.error('❌ Invalid WAV file: Missing fmt or data chunks');
+                return null;
+            }
+            
+            // Extract PCM data
+            const pcmData = wavBuffer.slice(dataOffset);
+            const samples = new Int16Array(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength / 2);
+            
+            console.log(`🔊 Original audio: ${samples.length} samples at ${sampleRate}Hz`);
+            
+            // Convert to mono if stereo
+            let monoSamples = samples;
+            if (channels === 2) {
+                console.log('🔄 Converting stereo to mono...');
+                monoSamples = new Int16Array(samples.length / 2);
+                for (let i = 0; i < monoSamples.length; i++) {
+                    monoSamples[i] = Math.round((samples[i * 2] + samples[i * 2 + 1]) / 2);
+                }
+            }
+            
+            // Resample to 24kHz if needed
+            let targetSamples = monoSamples;
+            if (sampleRate !== 24000) {
+                console.log(`🔄 Resampling from ${sampleRate}Hz to 24000Hz...`);
+                const ratio = sampleRate / 24000;
+                const targetLength = Math.floor(monoSamples.length / ratio);
+                targetSamples = new Int16Array(targetLength);
+                
+                for (let i = 0; i < targetLength; i++) {
+                    const sourceIndex = Math.floor(i * ratio);
+                    targetSamples[i] = monoSamples[sourceIndex];
+                }
+            }
+            
+            console.log(`✅ Final audio: ${targetSamples.length} samples at 24000Hz, ${(targetSamples.length / 24000).toFixed(2)}s duration`);
+            
+            // Convert to base64
+            const buffer = Buffer.from(targetSamples.buffer);
+            return buffer.toString('base64');
+        } catch (error) {
+            console.error('❌ Error converting WAV to PCM24k:', error);
+            return null;
+        }
+    }
 }
-
-import { exec } from 'child_process';
-import util from 'util';
-import dotenv from 'dotenv';
 // express and cors are already imported at the top
 
 // Load environment variables
@@ -127,7 +233,7 @@ const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SEC
 
 // Initialize Supabase client
 const supabaseUrl = process.env.SUPABASE_URL || 'https://your-project.supabase.co';
-const supabaseKey = process.env.SUPABASE_ANON_KEY || 'your-anon-key';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'your-service-role-key';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const PORT = parseInt(process.env.PORT || '12001', 10); // WebSocket server port
@@ -170,83 +276,39 @@ class Tw2GemServer extends TwilioWebSocketServer {
         // Set up cleanup on process exit
         const self = this;
         process.on('SIGINT', () => {
-            console.log('Received SIGINT signal');
-            if (typeof self.cleanup === 'function') {
-                self.cleanup();
+            console.log('🛑 Received SIGINT, cleaning up...');
+            
+            // Clear ping interval
+            if (this.pingInterval) {
+                clearInterval(this.pingInterval);
+                this.pingInterval = null;
             }
-        });
-        process.on('SIGTERM', () => {
-            console.log('Received SIGTERM signal');
-            if (typeof self.cleanup === 'function') {
-                self.cleanup();
-            }
-        });
-        this.audioConverter = new AudioConverter();
-
-        this.setupEventHandlers();
-    }
-
-
-
-
-    cleanup() {
-        console.log('🧹 Cleaning up server resources...');
-        
-        // Clear the ping interval
-        if (this.pingInterval) {
-            clearInterval(this.pingInterval);
-            this.pingInterval = null;
-        }
-        
-        // Close all WebSocket connections
-        this.clients.forEach(socket => {
-            try {
-                // Close Gemini client if it exists
-                if (socket.geminiLive) {
-                    try {
-                        socket.geminiLive.close();
-                    } catch (err) {
-                        // Ignore errors when closing
+            
+            // Close all WebSocket connections
+            this.clients.forEach(socket => {
+                try {
+                    // Close Gemini client if it exists
+                    if (socket.geminiLive) {
+                        try {
+                            socket.geminiLive.close();
+                        } catch (err) {
+                            // Ignore errors when closing
+                        }
                     }
+                    
+                    // Terminate the socket
+                    socket.terminate();
+                } catch (err) {
+                    console.error('❌ Error closing socket during cleanup:', err);
                 }
-                
-                // Terminate the socket
-                socket.terminate();
-            } catch (err) {
-                console.error('❌ Error closing socket during cleanup:', err);
-            }
+            });
+            
+            console.log('✅ Server cleanup complete');
+            process.exit(0);
         });
-        
-        console.log('✅ Server cleanup complete');
     }
     
-    // Wait for Gemini to be fully ready
-    async waitForGeminiReady(socket, timeoutMs = 10000) {
-        return new Promise((resolve, reject) => {
-            const startTime = Date.now();
-            
-            const checkReady = () => {
-                if (socket.geminiReady) {
-                    console.log('✅ Gemini is ready!');
-                    resolve();
-                    return;
-                }
-                
-                if (Date.now() - startTime > timeoutMs) {
-                    console.error('❌ Timeout waiting for Gemini to be ready');
-                    reject(new Error('Timeout waiting for Gemini to be ready'));
-                    return;
-                }
-                
-                // Check again in 100ms
-                setTimeout(checkReady, 100);
-            };
-            
-            checkReady();
-        });
-    }
-
-    async setupGeminiClientWithAgent(socket, selectedAgent) {
+    async setupGeminiClientWithAgent(socket, selectedAgent, callType = 'inbound') {
         try {
             // CRITICAL: Prevent multiple Gemini sessions for the same socket
             if (socket.geminiLive) {
@@ -263,7 +325,7 @@ class Tw2GemServer extends TwilioWebSocketServer {
             // Initialize session flags
             socket.geminiReady = false;
             
-            console.log(`🎤 Creating Gemini client with voice: ${selectedAgent.voice_name || 'Puck'}`);
+            console.log(`🎤 Creating Gemini client with voice: ${selectedAgent.voice_name || 'Puck'} for ${callType} call`);
             
             // Create function handler and load integrations
             const functionHandler = new FunctionCallHandler(
@@ -300,7 +362,93 @@ class Tw2GemServer extends TwilioWebSocketServer {
                 }
             }
             
+            console.log(`🤖 Final model selection: ${userModel} for agent: ${selectedAgent.name}`);
+            console.log(`🎤 Voice selection: ${selectedAgent.voice_name || 'Puck'} for agent: ${selectedAgent.name}`);
+            
+            // CRITICAL: Personalize system instruction for campaign calls
+            let personalizedSystemInstruction = selectedAgent.system_instruction;
+            
+            console.log(`🔍 DEBUGGING PERSONALIZATION:`);
+            console.log(`   Call type: ${callType}`);
+            console.log(`   Lead ID: ${socket.leadId}`);
+            console.log(`   Original system instruction: "${selectedAgent.system_instruction}"`);
+            
+            if (callType === 'campaign' && socket.leadId) {
+                console.log(`📋 Campaign call detected - personalizing system instruction for lead: ${socket.leadId}`);
+                try {
+                    // Fetch lead data from campaign_leads table
+                    const { data: leadData, error: leadError } = await supabase
+                        .from('campaign_leads')
+                        .select('first_name, last_name, email, phone_number, address, service_requested, custom_fields')
+                        .eq('id', socket.leadId)
+                        .single();
+                    
+                    if (leadError) {
+                        console.error('❌ Error fetching lead data:', leadError);
+                    } else if (leadData) {
+                        console.log(`✅ Fetched lead data for personalization:`, {
+                            first_name: leadData.first_name,
+                            last_name: leadData.last_name,
+                            phone_number: leadData.phone_number,
+                            email: leadData.email,
+                            address: leadData.address,
+                            service_requested: leadData.service_requested
+                        });
+                        
+                        // Replace variables in system instruction (using double curly braces to match UI)
+                        personalizedSystemInstruction = selectedAgent.system_instruction
+                            .replace(/\{\{first_name\}\}/g, leadData.first_name || 'Customer')
+                            .replace(/\{\{last_name\}\}/g, leadData.last_name || '')
+                            .replace(/\{\{phone_number\}\}/g, leadData.phone_number || '')
+                            .replace(/\{\{email\}\}/g, leadData.email || '')
+                            .replace(/\{\{address\}\}/g, leadData.address || '')
+                            .replace(/\{\{service_requested\}\}/g, leadData.service_requested || '');
+                        
+                        console.log(`🔄 BEFORE personalization: "${selectedAgent.system_instruction}"`);
+                        console.log(`🎯 AFTER personalization: "${personalizedSystemInstruction}"`);
+                        
+                        // Check if any variables were actually replaced
+                        const originalVariables = (selectedAgent.system_instruction.match(/\{\{[^}]+\}\}/g) || []);
+                        const remainingVariables = (personalizedSystemInstruction.match(/\{\{[^}]+\}\}/g) || []);
+                        console.log(`📊 Original variables found: ${originalVariables.length} - ${originalVariables.join(', ')}`);
+                        console.log(`📊 Remaining unreplaced: ${remainingVariables.length} - ${remainingVariables.join(', ')}`);
+                        
+                        // Handle custom fields if they exist
+                        if (leadData.custom_fields && typeof leadData.custom_fields === 'object') {
+                            Object.keys(leadData.custom_fields).forEach(key => {
+                                const placeholder = `{{${key}}}`;
+                                personalizedSystemInstruction = personalizedSystemInstruction.replace(
+                                    new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+                                    leadData.custom_fields[key] || ''
+                                );
+                            });
+                        }
+                        
+                        console.log(`🎯 System instruction personalized with lead variables`);
+                        console.log(`🔍 BEFORE: ${selectedAgent.system_instruction}`);
+                        console.log(`🔍 AFTER:  ${personalizedSystemInstruction}`);
+                        console.log(`🔍 VARIABLES THAT SHOULD BE REPLACED:`);
+                        console.log(`   {{first_name}} -> "${leadData.first_name}"`);
+                        console.log(`   {{last_name}} -> "${leadData.last_name}"`);
+                        console.log(`   {{phone_number}} -> "${leadData.phone_number}"`);
+                        console.log(`   {{service_requested}} -> "${leadData.service_requested}"`);
+                    } else {
+                        console.log(`⚠️ No lead data found for lead ID: ${socket.leadId}`);
+                    }
+                } catch (error) {
+                    console.error('❌ Error personalizing system instruction:', error);
+                }
+            } else {
+                console.log(`ℹ️ Not a campaign call or no lead ID - using original system instruction`);
+            }
+            
+            console.log(`🚀 FINAL SYSTEM INSTRUCTION BEING SENT TO GEMINI: "${personalizedSystemInstruction}"`);
+            console.log(`🔍 Character count: ${personalizedSystemInstruction.length}`);
+            console.log(`🔍 Contains variables: ${(personalizedSystemInstruction.match(/\{\{[^}]+\}\}/g) || []).join(', ') || 'None'}`);
+            console.log(`=`.repeat(80));
+            
             // Create official Gemini Live client configuration with agent-specific settings
+            console.log(`🔧 Creating Gemini config with system instruction: "${personalizedSystemInstruction.substring(0, 100)}..."`);
             const officialConfig = {
                 apiKey: this.geminiOptions.server.apiKey,
                 model: userModel,
@@ -312,12 +460,8 @@ class Tw2GemServer extends TwilioWebSocketServer {
                     },
                     languageCode: selectedAgent.language_code || 'en-US'
                 },
-                systemInstruction: {
-                    parts: [{ 
-                        text: selectedAgent.system_instruction || 
-                              'You are a professional AI assistant for customer service calls. Wait for the caller to speak first, then respond naturally and professionally. Be helpful, polite, and efficient. Listen actively and respond appropriately to what the caller says.'
-                    }]
-                },
+                // CRITICAL: Pass system instruction separately since Live API doesn't support systemInstruction in config
+                systemInstruction: personalizedSystemInstruction,
                 // Add function definitions to enable function calling
                 tools: functionDefinitions.length > 0 ? functionDefinitions : undefined,
                 
@@ -330,14 +474,85 @@ class Tw2GemServer extends TwilioWebSocketServer {
                 onReady: () => {
                     console.log(`🤖 Gemini Live client connected for agent: ${selectedAgent.name}`);
                     console.log(`🎤 Gemini voice: ${selectedAgent.voice_name}`);
-                    console.log(`🎧 Waiting for caller to speak first...`);
+                    console.log(`📞 Call type: ${callType}`);
                     
                     // CRITICAL: Set the readiness flag to allow audio processing
                     socket.geminiReady = true;
                     console.log('✅ Gemini marked as ready - audio processing enabled');
                     
-                    // REMOVED: Auto-greeting that forced Gemini to speak first
-                    // The caller should initiate the conversation naturally
+                    // CRITICAL: Only send greeting for INBOUND calls, NOT for campaign/outbound calls
+                    if (callType === 'inbound') {
+                        console.log(`🎧 INBOUND CALL: Sending initial greeting to prompt Gemini to speak first...`);
+                        
+                        // Send initial greeting WAV file immediately - Gemini is ready
+                        setImmediate(() => {
+                            // Send initial greeting WAV file to prompt Gemini to speak first
+                            try {
+                                const greetingPath = path.join(process.cwd(), 'record_out (1).wav');
+                                console.log(`📂 Looking for greeting file at: ${greetingPath}`);
+                                
+                                if (fs.existsSync(greetingPath)) {
+                                    const wavBuffer = fs.readFileSync(greetingPath);
+                                    console.log(`📁 Loaded greeting WAV file: ${wavBuffer.length} bytes`);
+                                    
+                                    // Convert WAV to PCM 24kHz for Gemini (not 16kHz!)
+                                    const pcmBase64 = AudioConverter.convertWavToPCM24k(wavBuffer);
+                                    
+                                    if (pcmBase64) {
+                                        console.log(`🎵 Converted greeting to PCM base64: ${pcmBase64.length} characters`);
+                                        
+                                        // CRITICAL: Send audio in proper format to Gemini
+                                        try {
+                                            socket.geminiLive.sendAudio(pcmBase64);
+                                            console.log('🎵 ✅ GREETING SENT TO GEMINI (24kHz PCM) - expecting response');
+                                            
+                                            // CRITICAL: Signal end of audio stream immediately to trigger Gemini response
+                                            setImmediate(() => {
+                                                try {
+                                                    if (socket.geminiLive) {
+                                                        socket.geminiLive.sendAudioStreamEnd();
+                                                        console.log('🎵 ✅ AUDIO STREAM END SIGNAL SENT - Gemini should respond now');
+                                                    }
+                                                } catch (streamEndError) {
+                                                    console.error('❌ Error sending audio stream end:', streamEndError);
+                                                }
+                                            }, 0); // No delay - send stream end immediately
+                                            
+                                            socket.greetingSent = true;
+                                        } catch (audioError) {
+                                            console.error('❌ Error sending audio to Gemini:', audioError);
+                                        }
+                                    } else {
+                                        console.error('❌ Failed to convert greeting WAV to PCM - conversion returned null');
+                                        
+                                        // Debug: Try to examine the file
+                                        console.log('🔍 Debugging WAV file...');
+                                        const header = wavBuffer.slice(0, 44);
+                                        console.log('📊 WAV header:', header.toString('hex'));
+                                        console.log('📊 RIFF header:', wavBuffer.toString('ascii', 0, 4));
+                                        console.log('📊 WAVE header:', wavBuffer.toString('ascii', 8, 12));
+                                    }
+                                } else {
+                                    console.warn('⚠️ Greeting file not found at:', greetingPath);
+                                    console.log('📁 Current working directory:', process.cwd());
+                                    console.log('📁 Files in current directory:');
+                                    try {
+                                        const files = fs.readdirSync(process.cwd());
+                                        files.filter(f => f.includes('wav') || f.includes('record')).forEach(f => {
+                                            console.log(`   - ${f}`);
+                                        });
+                                    } catch (e) {
+                                        console.log('   Could not list files');
+                                    }
+                                }
+                            } catch (error) {
+                                console.error('❌ Error processing initial greeting:', error);
+                                console.error('❌ Error stack:', error.stack);
+                            }
+                        }); // Process greeting immediately when ready
+                    } else {
+                        console.log(`🚫 CAMPAIGN/OUTBOUND CALL: NO greeting sent - waiting for caller to speak first`);
+                    }
                 },
                 
                 onError: (error) => {
@@ -349,8 +564,8 @@ class Tw2GemServer extends TwilioWebSocketServer {
                     // If we have a Twilio client and streamSid, send an error message to the caller
                     if (socket.twilioStreamSid) {
                         try {
-                            // Import twilio client
-                            const twilioClient = require('twilio')(
+                            // Use already imported twilio client
+                            const twilioClient = twilio(
                                 process.env.TWILIO_ACCOUNT_SID,
                                 process.env.TWILIO_AUTH_TOKEN
                             );
@@ -418,8 +633,11 @@ class Tw2GemServer extends TwilioWebSocketServer {
             selectedAgent = agentRouter.defaultAgent;
         }
         
-        // Always use the agent-aware setup
-        return this.setupGeminiClientWithAgent(socket, selectedAgent);
+        // Get call type from socket
+        const callType = socket.callType || 'inbound';
+        
+        // Always use the agent-aware setup with call type
+        return this.setupGeminiClientWithAgent(socket, selectedAgent, callType);
     }
     
     setupEventHandlers() {
@@ -428,6 +646,35 @@ class Tw2GemServer extends TwilioWebSocketServer {
             console.log('🔍 Request URL:', request.url);
             console.log('🔍 Request headers:', request.headers);
             console.log('🔍 Connection origin:', request.headers.origin || 'Unknown');
+            
+            // Parse call type from WebSocket URL
+            let callType = 'inbound'; // default
+            let campaignId = null;
+            let leadId = null;
+            let agentId = null;
+            
+            if (request.url) {
+                try {
+                    const url = new URL(request.url, 'http://localhost');
+                    callType = url.searchParams.get('callType') || 'inbound';
+                    campaignId = url.searchParams.get('campaignId');
+                    leadId = url.searchParams.get('leadId');
+                    agentId = url.searchParams.get('agentId');
+                    
+                    console.log(`📊 WebSocket call type: ${callType}`);
+                    if (callType === 'campaign') {
+                        console.log(`📋 Campaign info - ID: ${campaignId}, Lead: ${leadId}, Agent: ${agentId}`);
+                    }
+                } catch (error) {
+                    console.error('❌ Error parsing WebSocket URL parameters:', error);
+                }
+            }
+            
+            // Store call type on socket for later use
+            socket.callType = callType;
+            socket.campaignId = campaignId;
+            socket.leadId = leadId;
+            socket.initialAgentId = agentId;
             
             // Set socket as alive for ping/pong
             socket.isAlive = true;
@@ -507,9 +754,10 @@ class Tw2GemServer extends TwilioWebSocketServer {
                         } catch (err) {
                             // Ignore errors when closing
                         }
-                        // Use agent-aware setup to maintain consistent voice
+                        // Use agent-aware setup to maintain consistent voice and call type
                         const agent = socket.selectedAgent || agentRouter.defaultAgent;
-                        this.setupGeminiClientWithAgent(socket, agent).catch(error => {
+                        const callType = socket.callType || 'inbound';
+                        this.setupGeminiClientWithAgent(socket, agent, callType).catch(error => {
                             console.error('❌ Failed to recreate Gemini client:', error);
                         });
                     }
@@ -682,36 +930,54 @@ class Tw2GemServer extends TwilioWebSocketServer {
                 socket.geminiReady = false;
                 socket.audioBuffer = []; // Buffer audio until Gemini is ready
                 
-                // CRITICAL: Transfer agent from CallSid to StreamSid mapping
+                // CRITICAL: Transfer agent from CallSid to StreamSid mapping OR use campaign agent
                 let selectedAgent = null;
                 
-                // Try to get agent by CallSid first
-                if (socket.callSid) {
+                // For campaign calls, prioritize the agent from WebSocket URL parameters
+                if (socket.callType === 'campaign' && socket.initialAgentId) {
+                    console.log(`🎯 Campaign call - using agent from URL: ${socket.initialAgentId}`);
+                    try {
+                        const { data: agent, error } = await supabase
+                            .from('ai_agents')
+                            .select('*')
+                            .eq('id', socket.initialAgentId)
+                            .single();
+                        
+                        if (error) throw error;
+                        selectedAgent = { ...agent, callType: 'campaign', campaignId: socket.campaignId, leadId: socket.leadId };
+                        console.log(`✅ Campaign call assigned to agent: ${selectedAgent.name} (${selectedAgent.agent_type})`);
+                    } catch (error) {
+                        console.error('❌ Error fetching campaign agent from URL:', error);
+                    }
+                }
+                
+                // If not a campaign call or campaign agent fetch failed, try CallSid mapping
+                if (!selectedAgent && socket.callSid) {
                     selectedAgent = activeCallAgents.get(socket.callSid);
                     if (selectedAgent) {
-                        console.log(`✅ Found agent by CallSid: ${selectedAgent.name}`);
+                        console.log(`✅ Found agent by CallSid: ${selectedAgent.name || selectedAgent.id}`);
                         // Transfer the agent mapping to StreamSid
                         activeCallAgents.set(socket.twilioStreamSid, selectedAgent);
                         // Keep the CallSid mapping for cleanup
                     }
                 }
                 
-                // If no agent found by CallSid, try to route now as fallback
+                // If no agent found by any method, try fallback routing
                 if (!selectedAgent) {
-                    console.log('⚠️ No agent found by CallSid, attempting fallback routing');
+                    console.log('⚠️ No agent found by any method, attempting fallback routing');
                     try {
                         const routingResult = await agentRouter.routeIncomingCall({
                             CallSid: socket.callSid,
                             From: message.start?.customParameters?.From || 'unknown',
                             To: message.start?.customParameters?.To || 'unknown'
                         });
-                        selectedAgent = routingResult.agent;
+                        selectedAgent = { ...routingResult.agent, callType: socket.callType };
                         activeCallAgents.set(socket.twilioStreamSid, selectedAgent);
-                        console.log(`🔄 Fallback routing assigned agent: ${selectedAgent.name}`);
+                        console.log(`🔄 Fallback routing assigned agent: ${selectedAgent.name} (${selectedAgent.agent_type})`);
                     } catch (error) {
                         console.error('❌ Fallback routing failed:', error);
                         // Use default agent as final fallback
-                        selectedAgent = agentRouter.defaultAgent;
+                        selectedAgent = { ...agentRouter.defaultAgent, callType: socket.callType };
                         activeCallAgents.set(socket.twilioStreamSid, selectedAgent);
                         console.log('⚠️ Using default agent as final fallback');
                     }
@@ -735,37 +1001,26 @@ class Tw2GemServer extends TwilioWebSocketServer {
                     this.setupGhlIntegration(socket);
                 }
                 
-                // CRITICAL: Setup Gemini client and WAIT for it to be fully ready
+                // CRITICAL: Setup Gemini client - NO DELAYS, immediate readiness
                 console.log(`🤖 Setting up Gemini client for agent: ${selectedAgent.name}`);
                 try {
-                    await this.setupGeminiClientWithAgent(socket, selectedAgent);
+                    // Use the call type from the socket
+                    const callType = socket.callType || 'inbound';
+                    await this.setupGeminiClientWithAgent(socket, selectedAgent, callType);
                     
-                    // WAIT for Gemini to be fully ready before allowing audio processing
-                    console.log('⏳ Waiting for Gemini to be fully ready...');
-                    await this.waitForGeminiReady(socket, 10000); // Wait up to 10 seconds
+                    // NO WAITING - Gemini is ready immediately when onReady callback fires
+                    console.log(`⚡ Gemini setup complete - ready for immediate conversation on stream: ${socket.twilioStreamSid}`);
                     
-                    console.log(`✅ Gemini fully ready for conversation on stream: ${socket.twilioStreamSid}`);
-                    
-                    // Process any buffered audio now that Gemini is ready
-                    if (socket.audioBuffer && socket.audioBuffer.length > 0) {
-                        console.log(`🎵 Processing ${socket.audioBuffer.length} buffered audio chunks`);
-                        for (const audioData of socket.audioBuffer) {
-                            try {
-                                socket.geminiLive.sendAudio(audioData);
-                            } catch (err) {
-                                console.error('❌ Error sending buffered audio:', err);
-                            }
-                        }
-                        socket.audioBuffer = []; // Clear buffer
-                    }
+                    // Clear any buffered audio since we're starting fresh
+                    socket.audioBuffer = [];
                     
                 } catch (error) {
                     console.error('❌ Failed to create Gemini client:', error);
                     // Use a fallback to ensure calls don't fail completely
                     try {
-                        await this.setupGeminiClientWithAgent(socket, agentRouter.defaultAgent);
-                        await this.waitForGeminiReady(socket, 5000);
-                        console.log('⚠️ Using default agent as fallback');
+                        const fallbackCallType = socket.callType || 'inbound';
+                        await this.setupGeminiClientWithAgent(socket, agentRouter.defaultAgent, fallbackCallType);
+                        console.log('⚠️ Using default agent as fallback - ready immediately');
                     } catch (fallbackError) {
                         console.error('❌ Fallback Gemini setup also failed:', fallbackError);
                         socket.geminiReady = false;
@@ -777,6 +1032,13 @@ class Tw2GemServer extends TwilioWebSocketServer {
                 // Make sure socket is marked as alive
                 socket.isAlive = true;
                 
+                console.log('📥 Received audio media:', {
+                    track: message.media?.track,
+                    payloadLength: message.media?.payload?.length,
+                    timestamp: message.media?.timestamp,
+                    geminiReady: socket.geminiReady
+                });
+                
                 // CRITICAL FIX: Only process inbound audio (from caller) to prevent feedback loop
                 // Twilio sends both inbound (from caller) and outbound (to caller) audio
                 // We must ONLY send inbound audio to Gemini to prevent self-conversation
@@ -785,26 +1047,10 @@ class Tw2GemServer extends TwilioWebSocketServer {
                     return;
                 }
                 
-                // CRITICAL: Check if Gemini is fully ready before processing audio
+                // CRITICAL: Process audio immediately if Gemini is ready
                 if (!socket.geminiReady) {
-                    // Buffer audio until Gemini is ready
-                    if (!socket.audioBuffer) {
-                        socket.audioBuffer = [];
-                    }
-                    
-                    if (message.media?.payload) {
-                        // Convert and buffer the audio
-                        const audioData = AudioConverter.convertBase64MuLawToBase64PCM16k(message.media.payload);
-                        socket.audioBuffer.push(audioData);
-                        
-                        console.log('📦 Buffering audio - Gemini not ready yet. Buffer size:', socket.audioBuffer.length);
-                        
-                        // Limit buffer size to prevent memory issues
-                        if (socket.audioBuffer.length > 50) {
-                            socket.audioBuffer.shift(); // Remove oldest audio
-                        }
-                    }
-                    return; // Don't process audio until Gemini is ready
+                    console.log('⚠️ Audio received but Gemini not ready yet - skipping this chunk');
+                    return; // Skip this audio chunk, but don't buffer
                 }
                 
                 // Check if we have a Gemini client
@@ -812,7 +1058,8 @@ class Tw2GemServer extends TwilioWebSocketServer {
                     console.log('⚠️ No Gemini client for media event, creating one');
                     // Use agent-aware setup to prevent voice switching
                     const agent = socket.selectedAgent || agentRouter.defaultAgent;
-                    this.setupGeminiClientWithAgent(socket, agent).catch(error => {
+                    const callType = socket.callType || 'inbound';
+                    this.setupGeminiClientWithAgent(socket, agent, callType).catch(error => {
                         console.error('❌ Failed to create Gemini client for media:', error);
                     });
                     return; // Skip processing audio until Gemini is ready
@@ -949,6 +1196,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Supabase client is already initialized above
+
+// Setup Campaign API routes and Auto-Dialer Engine
+import { setupCampaignAPI } from './api/campaign-api.js';
+import { AutoDialerEngine } from './services/auto-dialer-engine.js';
+
+// Global storage for active dialer instances (for server-level access)
+const activeDialers = new Map(); // campaignId -> dialerInstance
+
+setupCampaignAPI(app, supabase);
 
 // API endpoints for Zapier integrations
 app.get('/api/agents/:agentId/zaps', async (req, res) => {
@@ -1122,19 +1378,13 @@ const server = new Tw2GemServer({
             proactivity: {
                 proactiveAudio: true
             },
-            systemInstruction: {
-                parts: [{ 
-                    text: process.env.SYSTEM_INSTRUCTION || 
-                          'You are a professional AI assistant for customer service calls. Wait for the caller to speak first, then respond naturally and professionally. Be helpful, polite, and efficient. Listen actively and respond appropriately to what the caller says.'
-                }]
-            },
-            // Voice Activity Detection: Allows caller to speak first, then Gemini responds naturally
+            // Voice Activity Detection: Low sensitivity to prevent background noise from interrupting Gemini
             realtimeInputConfig: {
                 automaticActivityDetection: {
-                    start_of_speech_sensitivity: 'START_SENSITIVITY_MEDIUM',
-                    end_of_speech_sensitivity: 'END_SENSITIVITY_MEDIUM',
-                    silence_duration_ms: 1500,  // Wait 1.5 seconds of silence before considering speech ended
-                    prefix_padding_ms: 300      // Include 300ms before detected speech
+                    start_of_speech_sensitivity: 'START_SENSITIVITY_LOW',
+                    end_of_speech_sensitivity: 'END_SENSITIVITY_LOW',
+                    silence_duration_ms: 2000,  // Conservative to avoid false interruptions
+                    prefix_padding_ms: 200      // Minimal padding
                 }
             },
             inputAudioTranscription: {},
@@ -1143,6 +1393,9 @@ const server = new Tw2GemServer({
         }
     }
 });
+
+// CRITICAL: Setup event handlers after server creation
+server.setupEventHandlers();
 
 // Event handlers
 server.onNewCall = (socket) => {
@@ -1174,10 +1427,6 @@ server.onClose = (socket, event) => {
     }
 };
 
-// Import Twilio for webhook responses
-import twilio from 'twilio';
-import { AgentRoutingService } from './agent-routing-service.js';
-
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const WEBSOCKET_URL = process.env.WEBSOCKET_URL;
 
@@ -1187,16 +1436,123 @@ const agentRouter = new AgentRoutingService();
 // Store active call agents for WebSocket routing
 const activeCallAgents = new Map();
 
+// Test call TwiML webhook - handles TwiML response for test calls
+app.post('/webhook/test-call-twiml', async (req, res) => {
+    console.log('📞 Test call TwiML webhook called for test call');
+    console.log('Request body:', req.body);
+    console.log('Query params:', req.query);
+    
+    const twiml = new twilio.twiml.VoiceResponse();
+    
+    try {
+        const callSid = req.body.CallSid;
+        const from = req.body.From;
+        const to = req.body.To;
+        const agentId = req.query.agentId; // Get the agent ID from query parameters
+        
+        console.log(`🧪 Test call - CallSid: ${callSid}, From: ${from}, To: ${to}, AgentId: ${agentId}`);
+        
+        let selectedAgent;
+        
+        if (agentId) {
+            // Use the specific agent selected for the test call
+            try {
+                const { data: agent, error } = await supabase
+                    .from('ai_agents')
+                    .select('*')
+                    .eq('id', agentId)
+                    .single();
+                
+                if (error) throw error;
+                selectedAgent = agent;
+                console.log(`🎯 Test call using specified agent: ${selectedAgent.name} (${selectedAgent.agent_type})`);
+            } catch (error) {
+                console.error('❌ Error fetching specified agent:', error);
+                // Fall back to routing if agent not found
+                const routingResult = await agentRouter.routeIncomingCall(req.body);
+                selectedAgent = routingResult.agent;
+                console.log(`🔄 Fallback routing to agent: ${selectedAgent.name} (${selectedAgent.agent_type})`);
+            }
+        } else {
+            // Fall back to normal routing if no agent ID provided
+            const routingResult = await agentRouter.routeIncomingCall(req.body);
+            selectedAgent = routingResult.agent;
+            console.log(`🔄 No agent ID provided, routing to agent: ${selectedAgent.name} (${selectedAgent.agent_type})`);
+        }
+        
+        // Store agent for this test call
+        activeCallAgents.set(callSid, selectedAgent);
+        
+        // Add a brief intro to indicate this is a test call
+        twiml.say({
+            voice: selectedAgent.voice_name || 'alice',
+            language: selectedAgent.language_code || 'en-US'
+        }, `Hello! This is a test call from your AI call center system. You'll now be connected to ${selectedAgent.name}.`);
+        
+        twiml.pause({ length: 1 });
+        
+        // Connect directly to WebSocket for AI conversation
+        const connect = twiml.connect();
+        connect.stream({
+            url: WEBSOCKET_URL
+        });
+        
+        // Log the routing decision
+        await agentRouter.logCallRouting(
+            callSid, 
+            selectedAgent.id, 
+            'test_call_routing',
+            req.body
+        );
+        
+    } catch (error) {
+        console.error('Error in test call TwiML webhook:', error);
+        
+        // Fallback to simple test message if there's an error
+        twiml.say({
+            voice: 'alice',
+            language: 'en-US'
+        }, 'Hello! This is a test call from your AI call center system. There was an issue connecting to the AI agent, but your test call infrastructure is working. The call will now end. Goodbye!');
+        
+        twiml.hangup();
+    }
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+});
+
 // Twilio webhook for incoming calls
 app.post('/webhook/voice', async (req, res) => {
     console.log('📞 Incoming call webhook:', req.body);
-    console.log('🔗 WebSocket URL will be:', WEBSOCKET_URL);
+    console.log('� Query parameters:', req.query);
+    console.log('�🔗 WebSocket URL will be:', WEBSOCKET_URL);
+    
+    // Check if this is a campaign call
+    const isCampaignCall = !!(req.query.campaignId && req.query.leadId && req.query.agentId);
+    console.log(`📊 Call type: ${isCampaignCall ? 'CAMPAIGN/OUTBOUND' : 'INBOUND'}`);
     
     // Create a TwiML response immediately to ensure we respond quickly
     const twiml = new twilio.twiml.VoiceResponse();
     const connect = twiml.connect();
+    
+    // Build WebSocket URL with call type information
+    let streamUrl = WEBSOCKET_URL;
+    if (isCampaignCall) {
+        // Add campaign call parameters to WebSocket URL
+        const urlParams = new URLSearchParams({
+            campaignId: req.query.campaignId,
+            leadId: req.query.leadId,
+            agentId: req.query.agentId,
+            callType: 'campaign'
+        });
+        streamUrl += `?${urlParams.toString()}`;
+    } else {
+        // Mark as inbound call
+        streamUrl += '?callType=inbound';
+    }
+    
     connect.stream({
-        url: WEBSOCKET_URL  // Use WEBSOCKET_URL directly since it includes the path
+        url: streamUrl
     });
     
     // Send the response immediately
@@ -1205,32 +1561,68 @@ app.post('/webhook/voice', async (req, res) => {
     
     // Process the call routing asynchronously after responding
     try {
-        // Route call to appropriate agent
-        const routingResult = await agentRouter.routeIncomingCall(req.body);
-        const { agent: selectedAgent, routing } = routingResult;
+        let selectedAgent;
         
-        // Store agent for this call using BOTH CallSid AND a backup method
-        // We'll use CallSid initially, then transfer to StreamSid when WebSocket connects
-        activeCallAgents.set(req.body.CallSid, selectedAgent);
-        
-        // Also store by phone number as backup for routing
-        if (req.body.To) {
-            activeCallAgents.set(`phone:${req.body.To}:${Date.now()}`, selectedAgent);
+        if (isCampaignCall) {
+            // For campaign calls, use the specified agent directly
+            console.log(`🎯 Campaign call - using agent ID: ${req.query.agentId}`);
+            
+            try {
+                const { data: agent, error } = await supabase
+                    .from('ai_agents')
+                    .select('*')
+                    .eq('id', req.query.agentId)
+                    .single();
+                
+                if (error) throw error;
+                selectedAgent = agent;
+                console.log(`✅ Campaign call assigned to agent: ${selectedAgent.name} (${selectedAgent.agent_type})`);
+                
+                // Store campaign info for this call
+                activeCallAgents.set(req.body.CallSid, {
+                    ...selectedAgent,
+                    callType: 'campaign',
+                    campaignId: req.query.campaignId,
+                    leadId: req.query.leadId
+                });
+                
+            } catch (error) {
+                console.error('❌ Error fetching campaign agent:', error);
+                // Fallback to default agent
+                selectedAgent = agentRouter.defaultAgent;
+                activeCallAgents.set(req.body.CallSid, { ...selectedAgent, callType: 'campaign' });
+                console.log('⚠️ Using default agent as fallback for campaign call');
+            }
+        } else {
+            // For inbound calls, use normal routing
+            const routingResult = await agentRouter.routeIncomingCall(req.body);
+            selectedAgent = routingResult.agent;
+            
+            // Store agent for this call using BOTH CallSid AND a backup method
+            // We'll use CallSid initially, then transfer to StreamSid when WebSocket connects
+            activeCallAgents.set(req.body.CallSid, { ...selectedAgent, callType: 'inbound' });
+            
+            // Also store by phone number as backup for routing
+            if (req.body.To) {
+                activeCallAgents.set(`phone:${req.body.To}:${Date.now()}`, { ...selectedAgent, callType: 'inbound' });
+            }
+            
+            console.log(`🎯 Routed inbound call ${req.body.CallSid} to agent: ${selectedAgent.name} (${selectedAgent.agent_type})`);
         }
-        
-        console.log(`🎯 Routed call ${req.body.CallSid} to agent: ${selectedAgent.name} (${selectedAgent.agent_type}) - Action: ${routing.action}`);
         
         // We've already sent the response with a stream connection
         // Just log the routing decision for tracking purposes
         console.log('🤖 Call connected to AI agent via WebSocket');
         
-        // Log the routing decision
-        await agentRouter.logCallRouting(
-            req.body.CallSid, 
-            selectedAgent.id, 
-            'webhook_routing',
-            req.body
-        );
+        // Log the routing decision (only for inbound calls)
+        if (!isCampaignCall) {
+            await agentRouter.logCallRouting(
+                req.body.CallSid, 
+                selectedAgent.id, 
+                'webhook_routing',
+                req.body
+            );
+        }
         
     } catch (error) {
         console.error('❌ Error in webhook routing:', error);
@@ -1240,10 +1632,254 @@ app.post('/webhook/voice', async (req, res) => {
 });
 
 // Twilio webhook for call status
-app.post('/webhook/status', (req, res) => {
+app.post('/webhook/status', async (req, res) => {
     console.log('📊 Call status update:', req.body);
+    
+    const { CallSid, CallStatus, CallDuration, RecordingUrl } = req.body;
+    
+    // Handle call completion for minute deduction
+    if (CallStatus === 'completed' || CallStatus === 'failed' || CallStatus === 'busy' || CallStatus === 'no-answer') {
+        const duration = parseInt(CallDuration) || 0;
+        
+        // Update call in database and deduct minutes
+        await agentRouter.updateCallEnd(CallSid, duration, CallStatus);
+        
+        // Check if this is a campaign call by looking for the call in campaign_leads
+        try {
+            const { data: leadCall, error: leadError } = await supabase
+                .from('campaign_leads')
+                .select('*')
+                .eq('call_sid', CallSid)
+                .single();
+            
+            if (leadCall && !leadError) {
+                console.log(`📞 Campaign call ${CallSid} completed with status: ${CallStatus}`);
+                
+                // Update the lead status based on call outcome
+                let leadStatus = 'completed';
+                if (CallStatus === 'failed' || CallStatus === 'busy' || CallStatus === 'no-answer') {
+                    leadStatus = 'failed';
+                }
+                
+                // Update the lead
+                await supabase
+                    .from('campaign_leads')
+                    .update({
+                        status: leadStatus,
+                        outcome: CallStatus,
+                        last_call_at: new Date().toISOString(),
+                        call_attempts: (leadCall.call_attempts || 0) + 1,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', leadCall.id);
+                
+                // Notify the AutoDialerEngine if it exists
+                const dialer = activeDialers.get(leadCall.campaign_id);
+                if (dialer) {
+                    dialer.handleCallCompletion(CallSid, CallStatus, duration);
+                }
+                
+                console.log(`✅ Updated campaign lead ${leadCall.id} to status: ${leadStatus}`);
+                
+                // 🚀 NEW: Process lead data and send to Google Sheets
+                await processLeadDataForGoogleSheets(CallSid, leadCall, CallStatus, duration, RecordingUrl);
+            }
+        } catch (error) {
+            console.error('❌ Error updating campaign lead:', error);
+        }
+    }
+    
     res.sendStatus(200);
 });
+
+/**
+ * Process lead data extraction and send to Google Sheets
+ * @param {string} callSid - The Twilio call SID
+ * @param {object} leadCall - The campaign lead data
+ * @param {string} callStatus - The call completion status
+ * @param {number} duration - Call duration in seconds
+ * @param {string} recordingUrl - URL to call recording
+ */
+async function processLeadDataForGoogleSheets(callSid, leadCall, callStatus, duration, recordingUrl) {
+    try {
+        console.log('🔍 Processing lead data for Google Sheets integration...');
+        
+        // Get the call log and transcript from database
+        const { data: callLog, error: callLogError } = await supabase
+            .from('call_logs')
+            .select('transcript, ai_insights, summary, campaign_id')
+            .eq('call_sid', callSid)
+            .single();
+        
+        if (callLogError || !callLog) {
+            console.log('⚠️ No call log found for transcript analysis');
+            // Still send basic data to Google Sheets even without transcript
+            await sendBasicDataToGoogleSheets(callSid, leadCall, callStatus, duration, recordingUrl);
+            return;
+        }
+        
+        // Extract lead data from transcript using Gemini
+        const transcript = callLog.transcript || callLog.summary || '';
+        if (transcript) {
+            console.log('🤖 Extracting lead data from transcript...');
+            
+            const systemPrompt = `You are extracting lead data from an outbound internet sales call transcript. 
+Focus on collecting: personal info, address, internet plan selection, installation preferences, payment info, 
+call outcome (answered/voicemail/no answer), data completeness, and DNC requests.`;
+            
+            const extractedData = await extractLeadDataFromTranscript(transcript, systemPrompt);
+            
+            // Save extracted data to lead_data table
+            const leadDataRecord = {
+                call_id: callLog.id || null,
+                campaign_id: leadCall.campaign_id,
+                lead_id: leadCall.id,
+                phone_number: leadCall.phone_number,
+                full_name: extractedData.customerInfo?.fullName || '',
+                first_name: extractedData.customerInfo?.firstName || '',
+                last_name: extractedData.customerInfo?.lastName || '',
+                email: extractedData.customerInfo?.email || '',
+                date_of_birth: extractedData.customerInfo?.dob || null,
+                ssn_last_four: extractedData.customerInfo?.ssn || '',
+                current_street: extractAddress(extractedData.customerInfo?.currentAddress, 'street'),
+                current_city: extractAddress(extractedData.customerInfo?.currentAddress, 'city'),
+                current_state: extractAddress(extractedData.customerInfo?.currentAddress, 'state'),
+                current_zip: extractAddress(extractedData.customerInfo?.currentAddress, 'zip'),
+                previous_street: extractAddress(extractedData.customerInfo?.previousAddress, 'street'),
+                previous_city: extractAddress(extractedData.customerInfo?.previousAddress, 'city'),
+                previous_state: extractAddress(extractedData.customerInfo?.previousAddress, 'state'),
+                previous_zip: extractAddress(extractedData.customerInfo?.previousAddress, 'zip'),
+                internet_plan_name: extractedData.orderInfo?.selectedPlan || '',
+                internet_speed: extractedData.orderInfo?.internetSpeed || '',
+                internet_price: parseFloat(extractedData.orderInfo?.price) || null,
+                promotional_price: parseFloat(extractedData.orderInfo?.promotionalPrice) || null,
+                preferred_install_date: extractedData.orderInfo?.installDateTime || null,
+                payment_method: extractedData.orderInfo?.paymentInfo || '',
+                autopay_enrollment: extractedData.orderInfo?.autopayEnrollment || false,
+                data_completeness_score: parseFloat(extractedData.callMetadata?.dataCompletenessScore) || 0,
+                call_answered: extractedData.callMetadata?.callAnswered || false,
+                call_outcome: extractedData.callMetadata?.callOutcome || callStatus,
+                dnc_requested: extractedData.callMetadata?.dncRequest === 'Yes',
+                qualified_lead: extractedData.callMetadata?.qualified === 'Yes',
+                appointment_scheduled: extractedData.callMetadata?.appointmentScheduled === 'Yes'
+            };
+            
+            // Save to lead_data table
+            const { error: saveError } = await supabase
+                .from('lead_data')
+                .insert(leadDataRecord);
+            
+            if (saveError) {
+                console.error('❌ Error saving lead data:', saveError);
+            } else {
+                console.log('✅ Lead data saved to database');
+            }
+            
+            // Prepare data for Google Sheets
+            const googleSheetsData = {
+                callMetadata: {
+                    callTimestamp: new Date().toISOString(),
+                    callStatus: callStatus,
+                    dataStatus: extractedData.callMetadata?.dataStatus || 'Incomplete',
+                    dncRequest: extractedData.callMetadata?.dncRequest || 'No',
+                    recordingUrl: recordingUrl || '',
+                    qualified: extractedData.callMetadata?.qualified || 'No',
+                    appointmentScheduled: extractedData.callMetadata?.appointmentScheduled || 'No',
+                    dataCompletenessScore: extractedData.callMetadata?.dataCompletenessScore || '0%'
+                },
+                customerInfo: {
+                    customerPhone: leadCall.phone_number,
+                    fullName: extractedData.customerInfo?.fullName || '',
+                    currentAddress: extractedData.customerInfo?.currentAddress || '',
+                    previousAddress: extractedData.customerInfo?.previousAddress || '',
+                    email: extractedData.customerInfo?.email || '',
+                    dob: extractedData.customerInfo?.dob || '',
+                    ssn: extractedData.customerInfo?.ssn || ''
+                },
+                orderInfo: {
+                    selectedPlan: extractedData.orderInfo?.selectedPlan || '',
+                    installDateTime: extractedData.orderInfo?.installDateTime || '',
+                    paymentInfo: extractedData.orderInfo?.paymentInfo || ''
+                }
+            };
+            
+            // Send to Google Sheets
+            await logLeadData(googleSheetsData);
+            console.log('✅ Lead data sent to Google Sheets');
+            
+        } else {
+            console.log('⚠️ No transcript available for analysis');
+            await sendBasicDataToGoogleSheets(callSid, leadCall, callStatus, duration, recordingUrl);
+        }
+        
+    } catch (error) {
+        console.error('❌ Error processing lead data for Google Sheets:', error);
+        // Still try to send basic data
+        await sendBasicDataToGoogleSheets(callSid, leadCall, callStatus, duration, recordingUrl);
+    }
+}
+
+/**
+ * Send basic call data to Google Sheets when transcript analysis isn't available
+ */
+async function sendBasicDataToGoogleSheets(callSid, leadCall, callStatus, duration, recordingUrl) {
+    try {
+        const basicData = {
+            callMetadata: {
+                callTimestamp: new Date().toISOString(),
+                callStatus: callStatus,
+                dataStatus: 'No Transcript',
+                dncRequest: 'Unknown',
+                recordingUrl: recordingUrl || '',
+                qualified: 'Unknown',
+                appointmentScheduled: 'No',
+                dataCompletenessScore: '0%'
+            },
+            customerInfo: {
+                customerPhone: leadCall.phone_number,
+                fullName: leadCall.first_name && leadCall.last_name ? `${leadCall.first_name} ${leadCall.last_name}` : '',
+                currentAddress: '',
+                previousAddress: '',
+                email: leadCall.email || '',
+                dob: '',
+                ssn: ''
+            },
+            orderInfo: {
+                selectedPlan: '',
+                installDateTime: '',
+                paymentInfo: ''
+            }
+        };
+        
+        await logLeadData(basicData);
+        console.log('✅ Basic call data sent to Google Sheets');
+    } catch (error) {
+        console.error('❌ Error sending basic data to Google Sheets:', error);
+    }
+}
+
+/**
+ * Extract specific address components from an address string
+ */
+function extractAddress(addressString, component) {
+    if (!addressString) return '';
+    
+    // Simple address parsing - you might want to use a more sophisticated library
+    const parts = addressString.split(',').map(p => p.trim());
+    
+    switch (component) {
+        case 'street':
+            return parts[0] || '';
+        case 'city':
+            return parts[1] || '';
+        case 'state':
+            return parts[2] ? parts[2].split(' ')[0] : '';
+        case 'zip':
+            return parts[2] ? parts[2].split(' ').pop() : '';
+        default:
+            return '';
+    }
+}
 
 // Twilio webhook for IVR selection
 app.post('/webhook/ivr-selection', async (req, res) => {
@@ -1872,216 +2508,6 @@ app.delete('/api/zapier/webhooks/:id', async (req, res) => {
     }
 });
 
-// Agent Zapier integrations endpoints
-app.get('/api/agents/:agentId/zaps', async (req, res) => {
-    try {
-        const { agentId } = req.params;
-        
-        // Validate agent ID
-        const { data: agent, error: agentError } = await supabase
-            .from('ai_agents')
-            .select('id')
-            .eq('id', agentId)
-            .single();
-            
-        if (agentError || !agent) {
-            return res.status(404).json({ error: 'Agent not found' });
-        }
-        
-        // Fetch Zapier integrations for this agent
-        const { data, error } = await supabase
-            .from('agent_zaps')
-            .select('*')
-            .eq('agent_id', agentId);
-            
-        if (error) {
-            console.error('Error fetching agent Zapier integrations:', error);
-            return res.status(500).json({ error: 'Failed to fetch Zapier integrations' });
-        }
-        
-        res.json(data || []);
-    } catch (err) {
-        console.error('Error in /api/agents/:agentId/zaps:', err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.post('/api/agents/:agentId/zaps', async (req, res) => {
-    try {
-        const { agentId } = req.params;
-        const { name, description, webhook_url, parameter_schema } = req.body;
-        
-        // Validate required fields
-        if (!name || !description || !webhook_url || !parameter_schema) {
-            return res.status(400).json({ 
-                error: 'Missing required fields: name, description, webhook_url, and parameter_schema are required' 
-            });
-        }
-        
-        // Validate agent ID
-        const { data: agent, error: agentError } = await supabase
-            .from('ai_agents')
-            .select('id')
-            .eq('id', agentId)
-            .single();
-            
-        if (agentError || !agent) {
-            return res.status(404).json({ error: 'Agent not found' });
-        }
-        
-        // Check for duplicate name for this agent
-        const { data: existingZap, error: existingError } = await supabase
-            .from('agent_zaps')
-            .select('id')
-            .eq('agent_id', agentId)
-            .eq('name', name)
-            .maybeSingle();
-            
-        if (existingZap) {
-            return res.status(409).json({ error: 'A Zapier integration with this name already exists for this agent' });
-        }
-        
-        // Create new Zapier integration
-        const { data, error } = await supabase
-            .from('agent_zaps')
-            .insert([{
-                agent_id: agentId,
-                name,
-                description,
-                webhook_url,
-                parameter_schema
-            }])
-            .select();
-            
-        if (error) {
-            console.error('Error creating Zapier integration:', error);
-            return res.status(500).json({ error: 'Failed to create Zapier integration' });
-        }
-        
-        res.status(201).json(data[0]);
-    } catch (err) {
-        console.error('Error in POST /api/agents/:agentId/zaps:', err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.get('/api/zaps/:zapId', async (req, res) => {
-    try {
-        const { zapId } = req.params;
-        
-        const { data, error } = await supabase
-            .from('agent_zaps')
-            .select('*')
-            .eq('id', zapId)
-            .single();
-            
-        if (error || !data) {
-            return res.status(404).json({ error: 'Zapier integration not found' });
-        }
-        
-        res.json(data);
-    } catch (err) {
-        console.error('Error in GET /api/zaps/:zapId:', err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.put('/api/zaps/:zapId', async (req, res) => {
-    try {
-        const { zapId } = req.params;
-        const { name, description, webhook_url, parameter_schema } = req.body;
-        
-        // Validate required fields
-        if (!name || !description || !webhook_url || !parameter_schema) {
-            return res.status(400).json({ 
-                error: 'Missing required fields: name, description, webhook_url, and parameter_schema are required' 
-            });
-        }
-        
-        // Check if the Zap exists
-        const { data: existingZap, error: existingError } = await supabase
-            .from('agent_zaps')
-            .select('id, agent_id, name')
-            .eq('id', zapId)
-            .single();
-            
-        if (existingError || !existingZap) {
-            return res.status(404).json({ error: 'Zapier integration not found' });
-        }
-        
-        // Check for duplicate name for this agent (excluding the current Zap)
-        if (name !== existingZap.name) {
-            const { data: duplicateZap, error: duplicateError } = await supabase
-                .from('agent_zaps')
-                .select('id')
-                .eq('agent_id', existingZap.agent_id)
-                .eq('name', name)
-                .neq('id', zapId)
-                .maybeSingle();
-                
-            if (duplicateZap) {
-                return res.status(409).json({ error: 'A Zapier integration with this name already exists for this agent' });
-            }
-        }
-        
-        // Update the Zapier integration
-        const { data, error } = await supabase
-            .from('agent_zaps')
-            .update({
-                name,
-                description,
-                webhook_url,
-                parameter_schema,
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', zapId)
-            .select();
-            
-        if (error) {
-            console.error('Error updating Zapier integration:', error);
-            return res.status(500).json({ error: 'Failed to update Zapier integration' });
-        }
-        
-        res.json(data[0]);
-    } catch (err) {
-        console.error('Error in PUT /api/zaps/:zapId:', err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.delete('/api/zaps/:zapId', async (req, res) => {
-    try {
-        const { zapId } = req.params;
-        
-        // Check if the Zap exists
-        const { data: existingZap, error: existingError } = await supabase
-            .from('agent_zaps')
-            .select('id')
-            .eq('id', zapId)
-            .single();
-            
-        if (existingError || !existingZap) {
-            return res.status(404).json({ error: 'Zapier integration not found' });
-        }
-        
-        // Delete the Zapier integration
-        const { error } = await supabase
-            .from('agent_zaps')
-            .delete()
-            .eq('id', zapId);
-            
-        if (error) {
-            console.error('Error deleting Zapier integration:', error);
-            return res.status(500).json({ error: 'Failed to delete Zapier integration' });
-        }
-        
-        res.status(204).send();
-    } catch (err) {
-        console.error('Error in DELETE /api/zaps/:zapId:', err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
 // Go High Level integration endpoints
 app.get('/api/ghl/settings', async (req, res) => {
     try {
@@ -2317,54 +2743,72 @@ app.delete('/api/integrations/ghl', async (req, res) => {
     }
 });
 
-// Campaign endpoints
-app.get('/api/campaigns', async (req, res) => {
-    try {
-        const { profile_id } = req.query;
-        if (!profile_id) {
-            return res.status(400).json({ error: 'profile_id is required' });
-        }
-        
-        // Get real campaigns data from Supabase
-        const { data, error } = await supabase
-            .from('campaigns')
-            .select('*')
-            .eq('profile_id', profile_id)
-            .order('created_at', { ascending: false });
-        
-        if (error) {
-            console.error('Error fetching campaigns:', error);
-            return res.status(500).json({ error: 'Failed to fetch campaigns' });
-        }
-        
-        res.json(data || []);
-    } catch (error) {
-        console.error('Error fetching campaigns:', error);
-        res.status(500).json({ error: 'Failed to fetch campaigns' });
-    }
-});
+// Campaign endpoints - now handled by setupCampaignAPI() import
 
-app.post('/api/campaigns', async (req, res) => {
+// Test call endpoint
+app.post('/api/test-call', async (req, res) => {
     try {
-        const campaignData = req.body;
-        
-        if (!campaignData.profile_id || !campaignData.name) {
-            return res.status(400).json({ error: 'Missing required fields' });
+        const { to, from, message, agentId } = req.body;
+
+        if (!to) {
+            return res.status(400).json({ error: 'Phone number is required' });
         }
+
+        if (!agentId) {
+            return res.status(400).json({ error: 'Agent selection is required' });
+        }
+
+        // Validate environment variables
+        const accountSid = process.env.TWILIO_ACCOUNT_SID;
+        const authToken = process.env.TWILIO_AUTH_TOKEN;
+        const twilioNumber = process.env.TWILIO_PHONE_NUMBER || from;
+
+        if (!accountSid || !authToken) {
+            return res.status(500).json({ 
+                error: 'Twilio configuration missing. Please check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN environment variables.' 
+            });
+        }
+
+        // Initialize Twilio client (you'll need to install twilio package)
+        // For now, we'll simulate the call creation
+        const callSid = `CA${Math.random().toString(36).substr(2, 9)}${Date.now().toString(36)}`;
         
-        const campaign = {
-            id: Date.now().toString(),
-            ...campaignData,
-            status: 'draft',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        };
+        console.log('Test call request:', {
+            to,
+            from: twilioNumber,
+            agentId,
+            message: message || 'This is a test call from your AI call center system.',
+            accountSid: accountSid ? accountSid.substring(0, 8) + '...' : 'Not configured'
+        });
+
+        // Create actual Twilio call using existing twilio import
+        const twilioClient = twilio(accountSid, authToken);
         
-        // TODO: Save to Supabase
-        res.status(201).json(campaign);
+        const call = await twilioClient.calls.create({
+            from: twilioNumber,
+            to: to,
+            url: `${WEBHOOK_URL.replace('/webhook/voice', '')}/webhook/test-call-twiml?agentId=${agentId}`,
+            method: 'POST'
+        });
+
+        console.log(`Real Twilio call created - Call SID: ${call.sid} with agent ID: ${agentId}`);
+
+        res.json({
+            success: true,
+            callSid: call.sid,
+            to: to,
+            from: twilioNumber,
+            agentId: agentId,
+            status: call.status,
+            message: 'Test call initiated successfully with Twilio!'
+        });
+
     } catch (error) {
-        console.error('Error creating campaign:', error);
-        res.status(500).json({ error: 'Failed to create campaign' });
+        console.error('Error creating test call:', error);
+        res.status(500).json({ 
+            error: 'Failed to initiate test call',
+            details: error.message 
+        });
     }
 });
 
@@ -2485,76 +2929,6 @@ app.get('/api/agents/routing-stats', async (req, res) => {
 });
 
 // ===== PRODUCTION API ENDPOINTS =====
-
-// Campaign Management API
-app.get('/api/campaigns', async (req, res) => {
-    try {
-        const { profile_id } = req.query;
-        let query = supabase.from('campaigns').select('*').order('created_at', { ascending: false });
-        
-        if (profile_id) {
-            query = query.eq('profile_id', profile_id);
-        }
-        
-        const { data, error } = await query;
-        if (error) throw error;
-        
-        res.json(data || []);
-    } catch (error) {
-        console.error('Error fetching campaigns:', error);
-        res.status(500).json({ error: 'Failed to fetch campaigns' });
-    }
-});
-
-app.post('/api/campaigns', async (req, res) => {
-    try {
-        const { data, error } = await supabase
-            .from('campaigns')
-            .insert(req.body)
-            .select()
-            .single();
-            
-        if (error) throw error;
-        res.json(data);
-    } catch (error) {
-        console.error('Error creating campaign:', error);
-        res.status(500).json({ error: 'Failed to create campaign' });
-    }
-});
-
-app.put('/api/campaigns/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { data, error } = await supabase
-            .from('campaigns')
-            .update(req.body)
-            .eq('id', id)
-            .select()
-            .single();
-            
-        if (error) throw error;
-        res.json(data);
-    } catch (error) {
-        console.error('Error updating campaign:', error);
-        res.status(500).json({ error: 'Failed to update campaign' });
-    }
-});
-
-app.delete('/api/campaigns/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { error } = await supabase
-            .from('campaigns')
-            .delete()
-            .eq('id', id);
-            
-        if (error) throw error;
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Error deleting campaign:', error);
-        res.status(500).json({ error: 'Failed to delete campaign' });
-    }
-});
 
 // Stripe Billing Integration API
 app.post('/api/billing/create-checkout-session', async (req, res) => {
@@ -2748,76 +3122,6 @@ app.put('/api/notifications/:id/read', async (req, res) => {
     }
 });
 
-// Data Export API
-app.get('/api/export/calls', async (req, res) => {
-    try {
-        const { start_date, end_date, format = 'csv' } = req.query;
-        
-        let query = supabase.from('call_logs').select('*');
-        
-        if (start_date) {
-            query = query.gte('created_at', start_date);
-        }
-        
-        if (end_date) {
-            query = query.lte('created_at', end_date);
-        }
-        
-        const { data, error } = await query;
-        if (error) throw error;
-        
-        if (format === 'csv') {
-            const csvWriter = createObjectCsvWriter({
-                path: '/tmp/calls_export.csv',
-                header: [
-                    { id: 'id', title: 'ID' },
-                    { id: 'phone_number', title: 'Phone Number' },
-                    { id: 'duration', title: 'Duration' },
-                    { id: 'status', title: 'Status' },
-                    { id: 'created_at', title: 'Date' }
-                ]
-            });
-            
-            await csvWriter.writeRecords(data);
-            res.download('/tmp/calls_export.csv');
-        } else {
-            res.json(data);
-        }
-    } catch (error) {
-        console.error('Error exporting calls:', error);
-        res.status(500).json({ error: 'Failed to export calls' });
-    }
-});
-
-app.get('/api/export/campaigns', async (req, res) => {
-    try {
-        const { format = 'csv' } = req.query;
-        
-        const { data, error } = await supabase.from('campaigns').select('*');
-        if (error) throw error;
-        
-        if (format === 'csv') {
-            const csvWriter = createObjectCsvWriter({
-                path: '/tmp/campaigns_export.csv',
-                header: [
-                    { id: 'id', title: 'ID' },
-                    { id: 'name', title: 'Name' },
-                    { id: 'status', title: 'Status' },
-                    { id: 'created_at', title: 'Created At' }
-                ]
-            });
-            
-            await csvWriter.writeRecords(data);
-            res.download('/tmp/campaigns_export.csv');
-        } else {
-            res.json(data);
-        }
-    } catch (error) {
-        console.error('Error exporting campaigns:', error);
-        res.status(500).json({ error: 'Failed to export campaigns' });
-    }
-});
-
 // Health check endpoint
 app.get('/health', (req, res) => {
     res.json({ 
@@ -2833,6 +3137,11 @@ app.get('/health', (req, res) => {
 
 app.get('/api/agents', async (req, res) => {
     try {
+        console.log('🔍 /api/agents called with query:', req.query);
+        console.log('🔑 Supabase URL:', supabaseUrl);
+        console.log('🔑 Supabase Key exists:', !!supabaseKey);
+        console.log('🔑 Supabase Key length:', supabaseKey?.length);
+        
         const { profile_id } = req.query;
         
         let query = supabase
@@ -2844,11 +3153,28 @@ app.get('/api/agents', async (req, res) => {
             query = query.eq('profile_id', profile_id);
         }
         
+        console.log('📡 Attempting Supabase query...');
         const { data, error } = await query;
         
         if (error) {
             console.error('Error fetching agents:', error);
             return res.status(500).json({ error: 'Failed to fetch agents' });
+        }
+        
+        // If profile_id was specified but no agents found, fall back to all agents
+        if (profile_id && (!data || data.length === 0)) {
+            console.log(`⚠️ No agents found for profile_id ${profile_id}, falling back to all agents`);
+            const { data: allData, error: allError } = await supabase
+                .from('ai_agents')
+                .select('*')
+                .order('created_at', { ascending: false });
+                
+            if (allError) {
+                console.error('Error fetching all agents:', allError);
+                return res.status(500).json({ error: 'Failed to fetch agents' });
+            }
+            
+            return res.json(allData || []);
         }
         
         res.json(data || []);
@@ -2888,20 +3214,33 @@ app.put('/api/agents/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const agentData = req.body;
+        const { profile_id } = req.query;
         
-        const { data, error } = await supabase
+        // For multi-tenant security, verify the agent belongs to the requesting user
+        let updateQuery = supabase
             .from('ai_agents')
             .update({
                 ...agentData,
                 updated_at: new Date().toISOString()
             })
-            .eq('id', id)
+            .eq('id', id);
+        
+        // Add profile_id filter for security if provided
+        if (profile_id) {
+            updateQuery = updateQuery.eq('profile_id', profile_id);
+        }
+        
+        const { data, error } = await updateQuery
             .select()
             .single();
         
         if (error) {
             console.error('Error updating agent:', error);
             return res.status(500).json({ error: 'Failed to update agent' });
+        }
+        
+        if (!data) {
+            return res.status(404).json({ error: 'Agent not found or access denied' });
         }
         
         res.json(data);
@@ -3410,446 +3749,7 @@ app.delete('/api/calls/:id', async (req, res) => {
     }
 });
 
-// Individual Campaign Operations
-app.get('/api/campaigns/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { data, error } = await supabase
-            .from('campaigns')
-            .select('*')
-            .eq('id', id)
-            .single();
-
-        if (error) {
-            console.error('Error fetching campaign:', error);
-            return res.status(404).json({ error: 'Campaign not found' });
-        }
-
-        res.json(data);
-    } catch (error) {
-        console.error('Error in GET /api/campaigns/:id:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.post('/api/campaigns/:id/start', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { data, error } = await supabase
-            .from('campaigns')
-            .update({ 
-                status: 'active',
-                started_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', id)
-            .select()
-            .single();
-
-        if (error) {
-            console.error('Error starting campaign:', error);
-            return res.status(500).json({ error: 'Failed to start campaign' });
-        }
-
-        res.json(data);
-    } catch (error) {
-        console.error('Error in POST /api/campaigns/:id/start:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.post('/api/campaigns/:id/pause', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { data, error } = await supabase
-            .from('campaigns')
-            .update({ 
-                status: 'paused',
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', id)
-            .select()
-            .single();
-
-        if (error) {
-            console.error('Error pausing campaign:', error);
-            return res.status(500).json({ error: 'Failed to pause campaign' });
-        }
-
-        res.json(data);
-    } catch (error) {
-        console.error('Error in POST /api/campaigns/:id/pause:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.post('/api/campaigns/:id/stop', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { data, error } = await supabase
-            .from('campaigns')
-            .update({ 
-                status: 'stopped',
-                completed_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', id)
-            .select()
-            .single();
-
-        if (error) {
-            console.error('Error stopping campaign:', error);
-            return res.status(500).json({ error: 'Failed to stop campaign' });
-        }
-
-        res.json(data);
-    } catch (error) {
-        console.error('Error in POST /api/campaigns/:id/stop:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.get('/api/campaigns/:id/stats', async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        // Get campaign basic info
-        const { data: campaign, error: campaignError } = await supabase
-            .from('campaigns')
-            .select('*')
-            .eq('id', id)
-            .single();
-
-        if (campaignError) {
-            console.error('Error fetching campaign:', campaignError);
-            return res.status(404).json({ error: 'Campaign not found' });
-        }
-
-        // Get lead statistics
-        const { data: leads, error: leadsError } = await supabase
-            .from('campaign_leads')
-            .select('status')
-            .eq('campaign_id', id);
-
-        if (leadsError) {
-            console.error('Error fetching leads:', leadsError);
-            return res.status(500).json({ error: 'Failed to fetch lead statistics' });
-        }
-
-        const stats = {
-            total_leads: leads?.length || 0,
-            pending: leads?.filter(l => l.status === 'pending').length || 0,
-            called: leads?.filter(l => ['completed', 'failed', 'no_answer'].includes(l.status)).length || 0,
-            completed: leads?.filter(l => l.status === 'completed').length || 0,
-            failed: leads?.filter(l => l.status === 'failed').length || 0,
-            no_answer: leads?.filter(l => l.status === 'no_answer').length || 0
-        };
-
-        res.json({
-            campaign,
-            stats
-        });
-    } catch (error) {
-        console.error('Error in GET /api/campaigns/:id/stats:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Lead Management
-app.get('/api/campaigns/:id/leads', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { status, limit = 50, offset = 0 } = req.query;
-        
-        let query = supabase
-            .from('campaign_leads')
-            .select('*')
-            .eq('campaign_id', id)
-            .order('created_at', { ascending: false })
-            .range(offset, offset + limit - 1);
-
-        if (status) {
-            const statusArray = status.split(',');
-            query = query.in('status', statusArray);
-        }
-
-        const { data, error } = await query;
-
-        if (error) {
-            console.error('Error fetching campaign leads:', error);
-            return res.status(500).json({ error: 'Failed to fetch leads' });
-        }
-
-        res.json(data || []);
-    } catch (error) {
-        console.error('Error in GET /api/campaigns/:id/leads:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.post('/api/campaigns/:id/leads', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const leadData = { ...req.body, campaign_id: id };
-        
-        const { data, error } = await supabase
-            .from('campaign_leads')
-            .insert(leadData)
-            .select()
-            .single();
-
-        if (error) {
-            console.error('Error creating lead:', error);
-            return res.status(500).json({ error: 'Failed to create lead' });
-        }
-
-        res.status(201).json(data);
-    } catch (error) {
-        console.error('Error in POST /api/campaigns/:id/leads:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.get('/api/campaigns/:campaignId/leads/:id', async (req, res) => {
-    try {
-        const { campaignId, id } = req.params;
-        const { data, error } = await supabase
-            .from('campaign_leads')
-            .select('*')
-            .eq('id', id)
-            .eq('campaign_id', campaignId)
-            .single();
-
-        if (error) {
-            console.error('Error fetching lead:', error);
-            return res.status(404).json({ error: 'Lead not found' });
-        }
-
-        res.json(data);
-    } catch (error) {
-        console.error('Error in GET /api/campaigns/:campaignId/leads/:id:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.put('/api/campaigns/:campaignId/leads/:id', async (req, res) => {
-    try {
-        const { campaignId, id } = req.params;
-        const updates = req.body;
-        
-        const { data, error } = await supabase
-            .from('campaign_leads')
-            .update(updates)
-            .eq('id', id)
-            .eq('campaign_id', campaignId)
-            .select()
-            .single();
-
-        if (error) {
-            console.error('Error updating lead:', error);
-            return res.status(500).json({ error: 'Failed to update lead' });
-        }
-
-        res.json(data);
-    } catch (error) {
-        console.error('Error in PUT /api/campaigns/:campaignId/leads/:id:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.delete('/api/campaigns/:campaignId/leads/:id', async (req, res) => {
-    try {
-        const { campaignId, id } = req.params;
-        const { error } = await supabase
-            .from('campaign_leads')
-            .delete()
-            .eq('id', id)
-            .eq('campaign_id', campaignId);
-
-        if (error) {
-            console.error('Error deleting lead:', error);
-            return res.status(500).json({ error: 'Failed to delete lead' });
-        }
-
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Error in DELETE /api/campaigns/:campaignId/leads/:id:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.post('/api/campaigns/:id/import-leads', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { leads } = req.body;
-        
-        if (!Array.isArray(leads)) {
-            return res.status(400).json({ error: 'Leads must be an array' });
-        }
-
-        const leadsWithCampaignId = leads.map(lead => ({
-            ...lead,
-            campaign_id: id,
-            status: 'pending',
-            created_at: new Date().toISOString()
-        }));
-
-        const { data, error } = await supabase
-            .from('campaign_leads')
-            .insert(leadsWithCampaignId)
-            .select();
-
-        if (error) {
-            console.error('Error importing leads:', error);
-            return res.status(500).json({ error: 'Failed to import leads' });
-        }
-
-        res.json({ 
-            success: true, 
-            imported: data?.length || 0,
-            leads: data 
-        });
-    } catch (error) {
-        console.error('Error in POST /api/campaigns/:id/import-leads:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Data Export
-app.get('/api/export/:type', async (req, res) => {
-    try {
-        const { type } = req.params;
-        const { format = 'csv', profile_id } = req.query;
-
-        let data = [];
-        let filename = '';
-
-        switch (type) {
-            case 'calls':
-                const { data: calls, error: callsError } = await supabase
-                    .from('call_logs')
-                    .select('*')
-                    .eq('profile_id', profile_id)
-                    .order('created_at', { ascending: false });
-
-                if (callsError) throw callsError;
-                data = calls || [];
-                filename = `calls_export_${new Date().toISOString().split('T')[0]}.${format}`;
-                break;
-
-            case 'campaigns':
-                const { data: campaigns, error: campaignsError } = await supabase
-                    .from('campaigns')
-                    .select('*')
-                    .eq('profile_id', profile_id)
-                    .order('created_at', { ascending: false });
-
-                if (campaignsError) throw campaignsError;
-                data = campaigns || [];
-                filename = `campaigns_export_${new Date().toISOString().split('T')[0]}.${format}`;
-                break;
-
-            case 'leads':
-                const { data: leads, error: leadsError } = await supabase
-                    .from('campaign_leads')
-                    .select('*, campaigns!inner(profile_id)')
-                    .eq('campaigns.profile_id', profile_id)
-                    .order('created_at', { ascending: false });
-
-                if (leadsError) throw leadsError;
-                data = leads || [];
-                filename = `leads_export_${new Date().toISOString().split('T')[0]}.${format}`;
-                break;
-
-            default:
-                return res.status(400).json({ error: 'Invalid export type' });
-        }
-
-        if (format === 'csv') {
-            if (data.length === 0) {
-                return res.status(200).send('No data to export');
-            }
-
-            const headers = Object.keys(data[0]);
-            const csvContent = [
-                headers.join(','),
-                ...data.map(row => 
-                    headers.map(header => {
-                        const value = row[header];
-                        if (value === null || value === undefined) return '';
-                        if (typeof value === 'string' && value.includes(',')) {
-                            return `"${value.replace(/"/g, '""')}"`;
-                        }
-                        return value;
-                    }).join(',')
-                )
-            ].join('\n');
-
-            res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-            res.send(csvContent);
-        } else {
-            res.setHeader('Content-Type', 'application/json');
-            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-            res.json(data);
-        }
-    } catch (error) {
-        console.error('Error in GET /api/export/:type:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.get('/api/campaigns/:id/export', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { format = 'csv' } = req.query;
-
-        const { data: leads, error } = await supabase
-            .from('campaign_leads')
-            .select('*')
-            .eq('campaign_id', id)
-            .order('created_at', { ascending: false });
-
-        if (error) {
-            console.error('Error fetching campaign leads for export:', error);
-            return res.status(500).json({ error: 'Failed to export campaign data' });
-        }
-
-        const filename = `campaign_${id}_export_${new Date().toISOString().split('T')[0]}.${format}`;
-
-        if (format === 'csv') {
-            if (!leads || leads.length === 0) {
-                return res.status(200).send('No leads to export');
-            }
-
-            const headers = Object.keys(leads[0]);
-            const csvContent = [
-                headers.join(','),
-                ...leads.map(row => 
-                    headers.map(header => {
-                        const value = row[header];
-                        if (value === null || value === undefined) return '';
-                        if (typeof value === 'string' && value.includes(',')) {
-                            return `"${value.replace(/"/g, '""')}"`;
-                        }
-                        return value;
-                    }).join(',')
-                )
-            ].join('\n');
-
-            res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-            res.send(csvContent);
-        } else {
-            res.setHeader('Content-Type', 'application/json');
-            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-            res.json(leads || []);
-        }
-    } catch (error) {
-        console.error('Error in GET /api/campaigns/:id/export:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
+// Individual Campaign Operations - now handled by setupCampaignAPI() import
 
 // Individual IVR Option Management
 app.get('/api/ivr-options/:id', async (req, res) => {
@@ -4254,11 +4154,11 @@ app.get('/api/zaps/:id', async (req, res) => {
 httpServer.listen(PORT, '0.0.0.0', () => {
     console.log('🚀 Starting AI Calling Backend Server...');
     console.log(`📞 TW2GEM Server running on port ${PORT}`);
-    console.log(`🔗 Twilio webhook URL: ${WEBHOOK_URL}/webhook/voice`);
+    console.log(`🔗 Twilio webhook URL: ${WEBHOOK_URL}`);
     console.log(`🎵 Twilio stream URL: ${WEBSOCKET_URL}`);
     console.log(`🤖 Gemini API: ${process.env.GEMINI_API_KEY ? '✅ Configured' : '❌ Not configured'}`);
-    console.log(`🏥 Health check: ${WEBHOOK_URL}/health`);
-    console.log(`🧪 System tests: ${WEBHOOK_URL}/test/system`);
+    console.log(`🏥 Health check: ${WEBHOOK_URL.replace('/webhook/voice', '')}/health`);
+    console.log(`🧪 System tests: ${WEBHOOK_URL.replace('/webhook/voice', '')}/test/system`);
     console.log('📋 Ready to receive calls!');
     console.log('🔧 All critical API endpoints implemented!');
 });

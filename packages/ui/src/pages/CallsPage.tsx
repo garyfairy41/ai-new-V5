@@ -63,16 +63,17 @@ export default function CallsPage() {
 
     const subscription = RealtimeService.subscribeToCallUpdates(
       user.id,
-      (updatedCall) => {
-        setCalls(prev => 
-          prev.map(call => call.id === updatedCall.id ? updatedCall : call)
-        );
+      () => {
+        // Call update handler - reload calls when any update occurs
+        loadCalls();
       },
-      (newCall) => {
-        setCalls(prev => [newCall, ...prev.slice(0, callsPerPage - 1)]);
+      () => {
+        // New call handler - reload calls when new call is added
+        loadCalls();
       },
-      (callId) => {
-        setCalls(prev => prev.filter(call => call.id !== callId));
+      () => {
+        // Delete call handler - reload calls when call is deleted
+        loadCalls();
       }
     );
 
@@ -191,24 +192,37 @@ export default function CallsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="sm:flex sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Call History</h1>
-          <p className="mt-2 text-sm text-gray-700">
-            View and manage all your AI call center interactions.
-          </p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
+      <div className="max-w-7xl mx-auto space-y-8">
+        {/* Modern Header */}
+        <div className="relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-3xl opacity-10"></div>
+          <div className="relative bg-white/80 backdrop-blur-xl shadow-2xl rounded-3xl border border-white/20">
+            <div className="px-8 py-8">
+              <div className="sm:flex sm:items-center sm:justify-between">
+                <div>
+                  <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                    Call History
+                  </h1>
+                  <p className="mt-2 text-lg text-slate-600">
+                    View and manage all your AI call center interactions.
+                  </p>
+                </div>
+                <div className="mt-4 sm:mt-0 flex space-x-3">
+                  <button
+                    onClick={handleExportCalls}
+                    className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white px-6 py-3 rounded-2xl hover:from-emerald-700 hover:to-emerald-800 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <ArrowDownTrayIcon className="h-5 w-5" />
+                      <span className="font-semibold">Export CSV</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="mt-4 sm:mt-0 flex space-x-3">
-          <button
-            onClick={handleExportCalls}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-          >
-            <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
-            Export
-          </button>
-        </div>
-      </div>
 
       {/* Filters */}
       <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
@@ -307,9 +321,9 @@ export default function CallsPage() {
                         <div className="text-sm font-medium text-gray-900 font-mono">
                           {call.direction === 'inbound' ? call.phone_number_from : call.phone_number_to}
                         </div>
-                        {call.direction === 'outbound' && call.outbound_campaigns && (
+                        {call.direction === 'outbound' && call.campaigns && (
                           <div className="text-sm text-gray-500">
-                            Campaign: {call.outbound_campaigns.name}
+                            Campaign: {call.campaigns.name}
                           </div>
                         )}
                       </div>
@@ -615,6 +629,7 @@ export default function CallsPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

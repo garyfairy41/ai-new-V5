@@ -51,7 +51,7 @@ export async function confirmAdminWithServiceKey() {
     
     console.log('Admin confirmation would require server-side implementation');
     return { success: false, error: 'Server-side confirmation required' };
-  } catch (error) {
+  } catch {
     return { success: false, error: 'Service key confirmation failed' };
   }
 }

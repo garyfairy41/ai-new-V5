@@ -1,7 +1,30 @@
+import { supabase } from '../lib/supabase';
 import type { CampaignLead } from '../lib/supabase';
 
 // API base URL
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://work-2-xztkqihbepsagxrs.prod-runtime.all-hands.dev';
+
+export interface DialerStatus {
+  campaign_id: string;
+  status: 'idle' | 'running' | 'paused' | 'stopping';
+  active_calls: number;
+  calls_in_queue: number;
+  completed_calls: number;
+  started_at?: string;
+  paused_at?: string;
+  total_leads: number;
+  leads_processed: number;
+  success_rate: number;
+  average_call_duration: number;
+  last_updated: string;
+}
+
+export interface DialerSettings {
+  max_concurrent_calls: number;
+  call_timeout_seconds: number;
+  retry_attempts: number;
+  retry_delay_minutes: number;
+}
 
 interface DialerConfig {
   campaignId: string
@@ -144,7 +167,7 @@ export class AutoDialerEngine {
         .filter((lead: any) => this.shouldCallLead(lead))
         .sort((a: any, b: any) => {
           // Sort by priority, then by last call attempt
-          const priorityOrder = { urgent: 4, high: 3, normal: 2, low: 1 };
+          const priorityOrder: Record<string, number> = { urgent: 4, high: 3, normal: 2, low: 1 };
           const aPriority = priorityOrder[a.priority] || 2;
           const bPriority = priorityOrder[b.priority] || 2;
           
@@ -473,5 +496,281 @@ export class AutoDialerEngine {
 
   getQueuedLeads() {
     return [...this.dialingQueue];
+  }
+}
+
+export class AutoDialerService {
+  static async getDialerStatus(campaignId: string): Promise<DialerStatus> {
+    const { data, error } = await supabase
+      .from('campaign_dialer_status')
+      .select('*')
+      .eq('campaign_id', campaignId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      throw new Error(`Failed to get dialer status: ${error.message}`);
+    }
+
+    // Return default status if not found
+    if (!data) {
+      return {
+        campaign_id: campaignId,
+        status: 'idle',
+        active_calls: 0,
+        calls_in_queue: 0,
+        completed_calls: 0,
+        total_leads: 0,
+        leads_processed: 0,
+        success_rate: 0,
+        average_call_duration: 0,
+        last_updated: new Date().toISOString()
+      };
+    }
+
+    return data;
+  }
+
+  // Service control methods for verification
+  static async startDialer(campaignId: string): Promise<boolean> {
+    try {
+      console.log(`Starting dialer for campaign ${campaignId}`);
+      
+      // Update campaign status to running
+      const { error } = await supabase
+        .from('campaigns')
+        .update({ status: 'active' })
+        .eq('id', campaignId);
+
+      if (error) {
+        console.error('Error updating campaign status:', error);
+        return false;
+      }
+
+      // API call to start dialer
+      const response = await fetch(`${API_BASE_URL}/api/dialer/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ campaign_id: campaignId })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to start dialer');
+      }
+
+      // Trigger background dialer worker
+      await this.triggerDialerWorker(campaignId);
+
+      return true;
+    } catch (error) {
+      console.error('Error starting dialer:', error);
+      return false;
+    }
+  }
+
+  static async stopDialer(campaignId: string): Promise<boolean> {
+    try {
+      console.log(`Stopping dialer for campaign ${campaignId}`);
+      
+      // Update campaign status to completed
+      const { error } = await supabase
+        .from('campaigns')
+        .update({ status: 'completed' })
+        .eq('id', campaignId);
+
+      if (error) {
+        console.error('Error updating campaign status:', error);
+        return false;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/dialer/stop`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ campaign_id: campaignId })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to stop dialer');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error stopping dialer:', error);
+      return false;
+    }
+  }
+
+  static async pauseDialer(campaignId: string): Promise<boolean> {
+    try {
+      console.log(`Pausing dialer for campaign ${campaignId}`);
+      
+      // Update campaign status to paused
+      const { error } = await supabase
+        .from('campaigns')
+        .update({ status: 'paused' })
+        .eq('id', campaignId);
+
+      if (error) {
+        console.error('Error updating campaign status:', error);
+        return false;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/dialer/pause`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ campaign_id: campaignId })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to pause dialer');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error pausing dialer:', error);
+      return false;
+    }
+  }
+
+  static async resumeDialer(campaignId: string): Promise<boolean> {
+    return await this.startDialer(campaignId);
+  }
+
+  static async updateDialerSettings(campaignId: string, settings: DialerSettings): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('campaigns')
+        .update({
+          max_concurrent_calls: settings.max_concurrent_calls,
+          call_timeout_seconds: settings.call_timeout_seconds,
+          retry_attempts: settings.retry_attempts,
+          retry_delay_minutes: settings.retry_delay_minutes
+        })
+        .eq('id', campaignId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error updating dialer settings:', error);
+      throw error;
+    }
+  }
+
+  static async getActiveCallsForCampaign(campaignId: string): Promise<number> {
+    try {
+      const { count, error } = await supabase
+        .from('call_logs')
+        .select('id', { count: 'exact' })
+        .eq('campaign_id', campaignId)
+        .eq('status', 'in_progress');
+
+      if (error) throw error;
+      return count || 0;
+    } catch (error) {
+      console.error('Error getting active calls:', error);
+      return 0;
+    }
+  }
+
+  static async getQueuedLeadsCount(campaignId: string): Promise<number> {
+    try {
+      const { count, error } = await supabase
+        .from('campaign_leads')
+        .select('id', { count: 'exact' })
+        .eq('campaign_id', campaignId)
+        .eq('status', 'pending');
+
+      if (error) throw error;
+      return count || 0;
+    } catch (error) {
+      console.error('Error getting queued leads:', error);
+      return 0;
+    }
+  }
+
+  private static async triggerDialerWorker(campaignId: string): Promise<void> {
+    // This would trigger your backend dialer service
+    try {
+      const response = await fetch('/api/dialer/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ campaignId })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to trigger dialer worker: ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error('Error triggering dialer worker:', error);
+      // Don't throw here as the status has already been updated
+    }
+  }
+
+  // Real-time subscription for dialer status updates
+  static subscribeToDialerStatus(campaignId: string, callback: (status: DialerStatus) => void) {
+    return supabase
+      .channel(`dialer-status-${campaignId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'campaign_dialer_status',
+          filter: `campaign_id=eq.${campaignId}`
+        },
+        (payload) => {
+          if (payload.new) {
+            callback(payload.new as DialerStatus);
+          }
+        }
+      )
+      .subscribe();
+  }
+
+  // Get dialer performance metrics
+  static async getDialerMetrics(campaignId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('call_logs')
+        .select(`
+          status,
+          call_duration_seconds,
+          created_at,
+          outcome
+        `)
+        .eq('campaign_id', campaignId);
+
+      if (error) throw error;
+
+      const metrics = {
+        total_calls: data.length,
+        completed_calls: data.filter(call => call.status === 'completed').length,
+        answered_calls: data.filter(call => call.outcome === 'answered').length,
+        no_answer: data.filter(call => call.outcome === 'no_answer').length,
+        busy: data.filter(call => call.outcome === 'busy').length,
+        failed: data.filter(call => call.outcome === 'failed').length,
+        average_duration: data
+          .filter(call => call.call_duration_seconds)
+          .reduce((sum, call) => sum + (call.call_duration_seconds || 0), 0) / 
+          data.filter(call => call.call_duration_seconds).length || 0,
+        answer_rate: data.length > 0 ? 
+          (data.filter(call => call.outcome === 'answered').length / data.length) * 100 : 0
+      };
+
+      return metrics;
+    } catch (error) {
+      console.error('Error getting dialer metrics:', error);
+      throw error;
+    }
   }
 }

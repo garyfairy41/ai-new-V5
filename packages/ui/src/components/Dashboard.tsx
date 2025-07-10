@@ -19,7 +19,7 @@ import UsageTracker from './UsageTracker';
 import OutboundCampaigns from './OutboundCampaigns';
 import ZapierIntegration from './ZapierIntegration';
 import ZapierIntegrationManager from './ZapierIntegrationManager';
-import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import { supabase } from '../lib/supabase';
 
 interface DashboardProps {
   onLogout: () => void
@@ -33,12 +33,11 @@ interface Agent {
 
 export default function Dashboard({ onLogout }: DashboardProps) {
   const [activeTab, setActiveTab] = useState('overview');
-  const [serverStatus, setServerStatus] = useState<'running' | 'stopped'>('stopped');
+  const [serverStatus] = useState<'running' | 'stopped'>('stopped');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [loading, setLoading] = useState(false);
   const { canUseInbound, canUseOutboundDialer } = usePermissions();
-  const supabase = useSupabaseClient();
   
   // Fetch agents when component mounts
   useEffect(() => {
@@ -79,10 +78,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     { id: 3, number: '+1 (555) 456-7890', status: 'failed', duration: '0m 12s', time: '5 min ago', ai_response: 'Connection timeout' },
     { id: 4, number: '+1 (555) 321-0987', status: 'completed', duration: '6m 45s', time: '8 min ago', ai_response: 'Support ticket created' },
   ];
-
-  const toggleServer = () => {
-    setServerStatus(serverStatus === 'running' ? 'stopped' : 'running');
-  };
 
   return (
     <div className="min-h-screen bg-slate-50">

@@ -14,7 +14,7 @@ export class GeminiLiveOfficial {
   async connect() {
     try {
       console.log('🔄 Connecting to Gemini Live API using official @google/genai...');
-      console.log('🔧 Model:', this.options.model || 'gemini-2.5-flash-preview-native-audio-dialog');
+      console.log('🔧 Model:', this.options.model || 'gemini-2.0-flash-live-001');
       console.log('🔑 API Key length:', this.options.apiKey ? this.options.apiKey.length : 'MISSING');
       
       // Initialize GoogleGenAI client
@@ -32,17 +32,15 @@ export class GeminiLiveOfficial {
             } 
           }
         },
-        systemInstruction: this.options.systemInstruction || {
-          parts: [{ text: "You are a helpful AI assistant on a phone call. Wait for the caller to speak first, then respond naturally and conversationally." }]
-        },
+        systemInstruction: this.options.systemInstruction,
         // Enable proper Voice Activity Detection to handle natural conversation flow
-        // This allows the caller to speak first and Gemini will respond naturally
+        // Less sensitive to background noise (kids, TV, ambient sounds)
         realtimeInputConfig: {
           automaticActivityDetection: {
-            start_of_speech_sensitivity: 'START_SENSITIVITY_MEDIUM',
-            end_of_speech_sensitivity: 'END_SENSITIVITY_MEDIUM', 
-            silence_duration_ms: 1500,  // Wait 1.5 seconds of silence before considering speech ended
-            prefix_padding_ms: 300      // Include 300ms before detected speech
+            start_of_speech_sensitivity: 'START_SENSITIVITY_LOW',   // Less sensitive to background noise
+            end_of_speech_sensitivity: 'END_SENSITIVITY_LOW',       // Less sensitive to ambient sounds
+            silence_duration_ms: 2000,  // Wait 2 seconds of silence before considering speech ended
+            prefix_padding_ms: 200      // Reduced padding to focus on main speaker
           }
         },
         inputAudioTranscription: {},
@@ -53,7 +51,7 @@ export class GeminiLiveOfficial {
 
       // Connect to Live API with callbacks
       this.geminiSession = await ai.live.connect({
-        model: this.options.model || 'gemini-2.5-flash-preview-native-audio-dialog',
+        model: this.options.model || 'gemini-2.0-flash-live-001',
         callbacks: {
           onopen: () => {
             console.log('✅ Gemini Live session established');
@@ -116,7 +114,7 @@ export class GeminiLiveOfficial {
       this.geminiSession.sendRealtimeInput({
         audio: { 
           data: base64AudioChunk,
-          mimeType: "audio/pcm;rate=16000" 
+          mimeType: "audio/pcm;rate=24000" 
         },
       });
       return true;

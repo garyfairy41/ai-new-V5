@@ -67,14 +67,22 @@ export default function SettingsPage() {
 
     setLoading(true);
     try {
+      console.log('Saving profile with data:', {
+        client_name: formData.client_name,
+        company_name: formData.company_name,
+        phone_number: formData.phone_number,
+        gemini_model: formData.gemini_model
+      });
+      
       await updateUser({
         client_name: formData.client_name,
         company_name: formData.company_name,
         phone_number: formData.phone_number,
-        gemini_model: formData.gemini_model as 'gemini-live-2.5-flash-preview' | 'gemini-2.0-flash-live-001' | 'gemini-2.5-flash-preview-native-audio-dialog'
+        gemini_model: formData.gemini_model as 'gemini-live-2.5-flash-preview' | 'gemini-2.0-flash-live-001' | 'gemini-2.5-flash-preview-native-audio-dialog' | 'gemini-2.5-flash-exp-native-audio-thinking-dialog'
       });
     } catch (error) {
       console.error('Error saving profile:', error);
+      toast.error(`Failed to update profile: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -250,6 +258,7 @@ export default function SettingsPage() {
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               >
                 <option value="gemini-2.5-flash-preview-native-audio-dialog">Gemini 2.5 Flash Preview (Native Audio Dialog)</option>
+                <option value="gemini-2.5-flash-exp-native-audio-thinking-dialog">Gemini 2.5 Flash Experimental (Native Audio Thinking Dialog)</option>
                 <option value="gemini-live-2.5-flash-preview">Gemini Live 2.5 Flash Preview</option>
                 <option value="gemini-2.0-flash-live-001">Gemini 2.0 Flash Live</option>
               </select>

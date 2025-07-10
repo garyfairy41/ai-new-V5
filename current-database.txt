@@ -1,0 +1,694 @@
+| query_name           | table_schema | table_name            | column_name                   | data_type                |
+| -------------------- | ------------ | --------------------- | ----------------------------- | ------------------------ |
+| public_table_columns | public       | admin_roles           | granted_at                    | timestamp with time zone |
+| public_table_columns | public       | admin_roles           | granted_by                    | uuid                     |
+| public_table_columns | public       | admin_roles           | id                            | uuid                     |
+| public_table_columns | public       | admin_roles           | is_active                     | boolean                  |
+| public_table_columns | public       | admin_roles           | profile_id                    | uuid                     |
+| public_table_columns | public       | admin_roles           | role_type                     | text                     |
+| public_table_columns | public       | agent_performance     | agent_id                      | uuid                     |
+| public_table_columns | public       | agent_performance     | avg_duration                  | numeric                  |
+| public_table_columns | public       | agent_performance     | calls_handled                 | integer                  |
+| public_table_columns | public       | agent_performance     | created_at                    | timestamp with time zone |
+| public_table_columns | public       | agent_performance     | date                          | date                     |
+| public_table_columns | public       | agent_performance     | id                            | uuid                     |
+| public_table_columns | public       | agent_performance     | profile_id                    | uuid                     |
+| public_table_columns | public       | agent_performance     | success_rate                  | numeric                  |
+| public_table_columns | public       | agent_zaps            | agent_id                      | uuid                     |
+| public_table_columns | public       | agent_zaps            | created_at                    | timestamp with time zone |
+| public_table_columns | public       | agent_zaps            | description                   | text                     |
+| public_table_columns | public       | agent_zaps            | id                            | uuid                     |
+| public_table_columns | public       | agent_zaps            | name                          | text                     |
+| public_table_columns | public       | agent_zaps            | parameter_schema              | jsonb                    |
+| public_table_columns | public       | agent_zaps            | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | agent_zaps            | webhook_url                   | text                     |
+| public_table_columns | public       | ai_agents             | agent_type                    | USER-DEFINED             |
+| public_table_columns | public       | ai_agents             | business_days                 | ARRAY                    |
+| public_table_columns | public       | ai_agents             | business_hours_end            | time without time zone   |
+| public_table_columns | public       | ai_agents             | business_hours_start          | time without time zone   |
+| public_table_columns | public       | ai_agents             | call_direction                | USER-DEFINED             |
+| public_table_columns | public       | ai_agents             | created_at                    | timestamp with time zone |
+| public_table_columns | public       | ai_agents             | description                   | text                     |
+| public_table_columns | public       | ai_agents             | escalation_email              | text                     |
+| public_table_columns | public       | ai_agents             | escalation_enabled            | boolean                  |
+| public_table_columns | public       | ai_agents             | escalation_phone_number       | text                     |
+| public_table_columns | public       | ai_agents             | escalation_type               | USER-DEFINED             |
+| public_table_columns | public       | ai_agents             | greeting                      | text                     |
+| public_table_columns | public       | ai_agents             | id                            | uuid                     |
+| public_table_columns | public       | ai_agents             | is_active                     | boolean                  |
+| public_table_columns | public       | ai_agents             | language_code                 | text                     |
+| public_table_columns | public       | ai_agents             | max_concurrent_calls          | integer                  |
+| public_table_columns | public       | ai_agents             | name                          | text                     |
+| public_table_columns | public       | ai_agents             | profile_id                    | uuid                     |
+| public_table_columns | public       | ai_agents             | status                        | text                     |
+| public_table_columns | public       | ai_agents             | system_instruction            | text                     |
+| public_table_columns | public       | ai_agents             | system_prompt                 | text                     |
+| public_table_columns | public       | ai_agents             | timezone                      | text                     |
+| public_table_columns | public       | ai_agents             | twilio_phone_number           | text                     |
+| public_table_columns | public       | ai_agents             | twilio_webhook_url            | text                     |
+| public_table_columns | public       | ai_agents             | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | ai_agents             | voice_name                    | USER-DEFINED             |
+| public_table_columns | public       | ai_agents             | voice_settings                | jsonb                    |
+| public_table_columns | public       | analytics_data        | agent_id                      | uuid                     |
+| public_table_columns | public       | analytics_data        | answered_calls                | integer                  |
+| public_table_columns | public       | analytics_data        | appointments_scheduled        | integer                  |
+| public_table_columns | public       | analytics_data        | average_duration_seconds      | real                     |
+| public_table_columns | public       | analytics_data        | created_at                    | timestamp with time zone |
+| public_table_columns | public       | analytics_data        | customer_satisfaction_avg     | real                     |
+| public_table_columns | public       | analytics_data        | date                          | date                     |
+| public_table_columns | public       | analytics_data        | escalations                   | integer                  |
+| public_table_columns | public       | analytics_data        | id                            | uuid                     |
+| public_table_columns | public       | analytics_data        | inbound_calls                 | integer                  |
+| public_table_columns | public       | analytics_data        | missed_calls                  | integer                  |
+| public_table_columns | public       | analytics_data        | outbound_calls                | integer                  |
+| public_table_columns | public       | analytics_data        | profile_id                    | uuid                     |
+| public_table_columns | public       | analytics_data        | sales_completed               | integer                  |
+| public_table_columns | public       | analytics_data        | sentiment_score_avg           | real                     |
+| public_table_columns | public       | analytics_data        | total_calls                   | integer                  |
+| public_table_columns | public       | analytics_data        | total_duration_seconds        | integer                  |
+| public_table_columns | public       | api_keys              | created_at                    | timestamp with time zone |
+| public_table_columns | public       | api_keys              | encrypted_key                 | text                     |
+| public_table_columns | public       | api_keys              | id                            | uuid                     |
+| public_table_columns | public       | api_keys              | key_name                      | text                     |
+| public_table_columns | public       | api_keys              | profile_id                    | uuid                     |
+| public_table_columns | public       | api_keys              | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | appointments          | appointment_date              | timestamp with time zone |
+| public_table_columns | public       | appointments          | appointment_type              | text                     |
+| public_table_columns | public       | appointments          | call_log_id                   | uuid                     |
+| public_table_columns | public       | appointments          | created_at                    | timestamp with time zone |
+| public_table_columns | public       | appointments          | customer_email                | text                     |
+| public_table_columns | public       | appointments          | customer_name                 | text                     |
+| public_table_columns | public       | appointments          | customer_phone                | text                     |
+| public_table_columns | public       | appointments          | duration_minutes              | integer                  |
+| public_table_columns | public       | appointments          | id                            | uuid                     |
+| public_table_columns | public       | appointments          | lead_id                       | uuid                     |
+| public_table_columns | public       | appointments          | location                      | text                     |
+| public_table_columns | public       | appointments          | notes                         | text                     |
+| public_table_columns | public       | appointments          | profile_id                    | uuid                     |
+| public_table_columns | public       | appointments          | reminder_sent                 | boolean                  |
+| public_table_columns | public       | appointments          | scheduled_date                | timestamp with time zone |
+| public_table_columns | public       | appointments          | status                        | text                     |
+| public_table_columns | public       | appointments          | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | billing               | cancel_at_period_end          | boolean                  |
+| public_table_columns | public       | billing               | created_at                    | timestamp with time zone |
+| public_table_columns | public       | billing               | current_period_end            | timestamp with time zone |
+| public_table_columns | public       | billing               | current_period_start          | timestamp with time zone |
+| public_table_columns | public       | billing               | id                            | uuid                     |
+| public_table_columns | public       | billing               | plan_name                     | text                     |
+| public_table_columns | public       | billing               | profile_id                    | uuid                     |
+| public_table_columns | public       | billing               | status                        | text                     |
+| public_table_columns | public       | billing               | stripe_customer_id            | text                     |
+| public_table_columns | public       | billing               | stripe_subscription_id        | text                     |
+| public_table_columns | public       | billing               | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | call_analytics        | agent_id                      | uuid                     |
+| public_table_columns | public       | call_analytics        | answered_calls                | integer                  |
+| public_table_columns | public       | call_analytics        | appointments_scheduled        | integer                  |
+| public_table_columns | public       | call_analytics        | average_duration_seconds      | real                     |
+| public_table_columns | public       | call_analytics        | created_at                    | timestamp with time zone |
+| public_table_columns | public       | call_analytics        | customer_satisfaction_avg     | real                     |
+| public_table_columns | public       | call_analytics        | date                          | date                     |
+| public_table_columns | public       | call_analytics        | escalations                   | integer                  |
+| public_table_columns | public       | call_analytics        | id                            | uuid                     |
+| public_table_columns | public       | call_analytics        | inbound_calls                 | integer                  |
+| public_table_columns | public       | call_analytics        | metric_name                   | character varying        |
+| public_table_columns | public       | call_analytics        | missed_calls                  | integer                  |
+| public_table_columns | public       | call_analytics        | outbound_calls                | integer                  |
+| public_table_columns | public       | call_analytics        | profile_id                    | uuid                     |
+| public_table_columns | public       | call_analytics        | sales_completed               | integer                  |
+| public_table_columns | public       | call_analytics        | sentiment_score_avg           | real                     |
+| public_table_columns | public       | call_analytics        | total_calls                   | integer                  |
+| public_table_columns | public       | call_analytics        | total_duration_seconds        | integer                  |
+| public_table_columns | public       | call_logs             | agent_id                      | uuid                     |
+| public_table_columns | public       | call_logs             | ai_insights                   | jsonb                    |
+| public_table_columns | public       | call_logs             | call_metadata                 | jsonb                    |
+| public_table_columns | public       | call_logs             | call_sid                      | character varying        |
+| public_table_columns | public       | call_logs             | call_summary                  | text                     |
+| public_table_columns | public       | call_logs             | campaign_id                   | uuid                     |
+| public_table_columns | public       | call_logs             | created_at                    | timestamp with time zone |
+| public_table_columns | public       | call_logs             | customer_name                 | text                     |
+| public_table_columns | public       | call_logs             | customer_satisfaction_score   | integer                  |
+| public_table_columns | public       | call_logs             | direction                     | USER-DEFINED             |
+| public_table_columns | public       | call_logs             | duration                      | integer                  |
+| public_table_columns | public       | call_logs             | duration_seconds              | integer                  |
+| public_table_columns | public       | call_logs             | ended_at                      | timestamp with time zone |
+| public_table_columns | public       | call_logs             | follow_up_date                | timestamp with time zone |
+| public_table_columns | public       | call_logs             | follow_up_required            | boolean                  |
+| public_table_columns | public       | call_logs             | id                            | uuid                     |
+| public_table_columns | public       | call_logs             | lead_id                       | uuid                     |
+| public_table_columns | public       | call_logs             | metadata                      | jsonb                    |
+| public_table_columns | public       | call_logs             | outcome                       | text                     |
+| public_table_columns | public       | call_logs             | phone_number                  | text                     |
+| public_table_columns | public       | call_logs             | phone_number_from             | text                     |
+| public_table_columns | public       | call_logs             | phone_number_to               | text                     |
+| public_table_columns | public       | call_logs             | priority                      | USER-DEFINED             |
+| public_table_columns | public       | call_logs             | profile_id                    | uuid                     |
+| public_table_columns | public       | call_logs             | recording_url                 | text                     |
+| public_table_columns | public       | call_logs             | routing_reason                | text                     |
+| public_table_columns | public       | call_logs             | sentiment_score               | real                     |
+| public_table_columns | public       | call_logs             | started_at                    | timestamp with time zone |
+| public_table_columns | public       | call_logs             | status                        | USER-DEFINED             |
+| public_table_columns | public       | call_logs             | summary                       | text                     |
+| public_table_columns | public       | call_logs             | summary_generated_at          | timestamp with time zone |
+| public_table_columns | public       | call_logs             | tags                          | ARRAY                    |
+| public_table_columns | public       | call_logs             | transcript                    | text                     |
+| public_table_columns | public       | call_logs             | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | call_queues           | agent_id                      | uuid                     |
+| public_table_columns | public       | call_queues           | agent_type_requested          | text                     |
+| public_table_columns | public       | call_queues           | business_hours_only           | boolean                  |
+| public_table_columns | public       | call_queues           | created_at                    | timestamp with time zone |
+| public_table_columns | public       | call_queues           | customer_name                 | text                     |
+| public_table_columns | public       | call_queues           | description                   | text                     |
+| public_table_columns | public       | call_queues           | id                            | uuid                     |
+| public_table_columns | public       | call_queues           | max_queue_size                | integer                  |
+| public_table_columns | public       | call_queues           | max_wait_time_seconds         | integer                  |
+| public_table_columns | public       | call_queues           | name                          | text                     |
+| public_table_columns | public       | call_queues           | overflow_action               | USER-DEFINED             |
+| public_table_columns | public       | call_queues           | overflow_destination          | text                     |
+| public_table_columns | public       | call_queues           | phone_number                  | text                     |
+| public_table_columns | public       | call_queues           | priority_routing              | boolean                  |
+| public_table_columns | public       | call_queues           | profile_id                    | uuid                     |
+| public_table_columns | public       | call_queues           | queue_music_url               | text                     |
+| public_table_columns | public       | call_queues           | status                        | text                     |
+| public_table_columns | public       | call_queues           | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | call_queues           | wait_time_seconds             | integer                  |
+| public_table_columns | public       | call_recordings       | call_id                       | uuid                     |
+| public_table_columns | public       | call_recordings       | created_at                    | timestamp with time zone |
+| public_table_columns | public       | call_recordings       | duration                      | integer                  |
+| public_table_columns | public       | call_recordings       | file_size                     | bigint                   |
+| public_table_columns | public       | call_recordings       | id                            | uuid                     |
+| public_table_columns | public       | call_recordings       | recording_url                 | text                     |
+| public_table_columns | public       | call_routing_rules    | agent_id                      | uuid                     |
+| public_table_columns | public       | call_routing_rules    | conditions                    | jsonb                    |
+| public_table_columns | public       | call_routing_rules    | created_at                    | timestamp with time zone |
+| public_table_columns | public       | call_routing_rules    | description                   | text                     |
+| public_table_columns | public       | call_routing_rules    | id                            | uuid                     |
+| public_table_columns | public       | call_routing_rules    | is_active                     | boolean                  |
+| public_table_columns | public       | call_routing_rules    | name                          | text                     |
+| public_table_columns | public       | call_routing_rules    | priority                      | integer                  |
+| public_table_columns | public       | call_routing_rules    | profile_id                    | uuid                     |
+| public_table_columns | public       | call_routing_rules    | queue_id                      | uuid                     |
+| public_table_columns | public       | call_routing_rules    | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | call_scripts          | agent_id                      | uuid                     |
+| public_table_columns | public       | call_scripts          | closing_script                | text                     |
+| public_table_columns | public       | call_scripts          | created_at                    | timestamp with time zone |
+| public_table_columns | public       | call_scripts          | escalation_script             | text                     |
+| public_table_columns | public       | call_scripts          | id                            | uuid                     |
+| public_table_columns | public       | call_scripts          | is_active                     | boolean                  |
+| public_table_columns | public       | call_scripts          | name                          | text                     |
+| public_table_columns | public       | call_scripts          | objection_handling            | jsonb                    |
+| public_table_columns | public       | call_scripts          | opening_script                | text                     |
+| public_table_columns | public       | call_scripts          | profile_id                    | uuid                     |
+| public_table_columns | public       | call_scripts          | script_type                   | USER-DEFINED             |
+| public_table_columns | public       | call_scripts          | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | call_sessions         | agent_id                      | uuid                     |
+| public_table_columns | public       | call_sessions         | caller_number                 | text                     |
+| public_table_columns | public       | call_sessions         | created_at                    | timestamp with time zone |
+| public_table_columns | public       | call_sessions         | duration_seconds              | integer                  |
+| public_table_columns | public       | call_sessions         | end_time                      | timestamp with time zone |
+| public_table_columns | public       | call_sessions         | id                            | uuid                     |
+| public_table_columns | public       | call_sessions         | profile_id                    | uuid                     |
+| public_table_columns | public       | call_sessions         | start_time                    | timestamp with time zone |
+| public_table_columns | public       | call_sessions         | status                        | text                     |
+| public_table_columns | public       | call_sessions         | twilio_call_sid               | text                     |
+| public_table_columns | public       | call_sessions         | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | campaign_leads        | call_attempts                 | integer                  |
+| public_table_columns | public       | campaign_leads        | campaign_id                   | uuid                     |
+| public_table_columns | public       | campaign_leads        | company                       | text                     |
+| public_table_columns | public       | campaign_leads        | created_at                    | timestamp with time zone |
+| public_table_columns | public       | campaign_leads        | custom_fields                 | jsonb                    |
+| public_table_columns | public       | campaign_leads        | do_not_call                   | boolean                  |
+| public_table_columns | public       | campaign_leads        | email                         | text                     |
+| public_table_columns | public       | campaign_leads        | first_name                    | text                     |
+| public_table_columns | public       | campaign_leads        | id                            | uuid                     |
+| public_table_columns | public       | campaign_leads        | last_call_at                  | timestamp with time zone |
+| public_table_columns | public       | campaign_leads        | last_name                     | text                     |
+| public_table_columns | public       | campaign_leads        | metadata                      | jsonb                    |
+| public_table_columns | public       | campaign_leads        | next_call_at                  | timestamp with time zone |
+| public_table_columns | public       | campaign_leads        | notes                         | text                     |
+| public_table_columns | public       | campaign_leads        | outcome                       | text                     |
+| public_table_columns | public       | campaign_leads        | phone_number                  | text                     |
+| public_table_columns | public       | campaign_leads        | preferred_call_time           | time without time zone   |
+| public_table_columns | public       | campaign_leads        | priority                      | USER-DEFINED             |
+| public_table_columns | public       | campaign_leads        | profile_id                    | uuid                     |
+| public_table_columns | public       | campaign_leads        | status                        | USER-DEFINED             |
+| public_table_columns | public       | campaign_leads        | tags                          | ARRAY                    |
+| public_table_columns | public       | campaign_leads        | timezone                      | text                     |
+| public_table_columns | public       | campaign_leads        | title                         | text                     |
+| public_table_columns | public       | campaign_leads        | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | campaign_metrics      | average_call_duration_seconds | real                     |
+| public_table_columns | public       | campaign_metrics      | campaign_id                   | uuid                     |
+| public_table_columns | public       | campaign_metrics      | conversion_rate               | real                     |
+| public_table_columns | public       | campaign_metrics      | cost_per_call                 | numeric                  |
+| public_table_columns | public       | campaign_metrics      | created_at                    | timestamp with time zone |
+| public_table_columns | public       | campaign_metrics      | date                          | date                     |
+| public_table_columns | public       | campaign_metrics      | id                            | uuid                     |
+| public_table_columns | public       | campaign_metrics      | leads_completed               | integer                  |
+| public_table_columns | public       | campaign_metrics      | leads_connected               | integer                  |
+| public_table_columns | public       | campaign_metrics      | leads_dialed                  | integer                  |
+| public_table_columns | public       | campaign_metrics      | leads_failed                  | integer                  |
+| public_table_columns | public       | campaign_metrics      | leads_queued                  | integer                  |
+| public_table_columns | public       | campaign_metrics      | profile_id                    | uuid                     |
+| public_table_columns | public       | campaign_metrics      | revenue_generated             | numeric                  |
+| public_table_columns | public       | campaign_metrics      | roi_percentage                | real                     |
+| public_table_columns | public       | campaign_metrics      | total_talk_time_seconds       | integer                  |
+| public_table_columns | public       | campaign_metrics      | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | campaigns             | agent_id                      | uuid                     |
+| public_table_columns | public       | campaigns             | call_timeout_seconds          | integer                  |
+| public_table_columns | public       | campaigns             | caller_id                     | text                     |
+| public_table_columns | public       | campaigns             | compliance_settings           | jsonb                    |
+| public_table_columns | public       | campaigns             | conversion_rate               | numeric                  |
+| public_table_columns | public       | campaigns             | created_at                    | timestamp with time zone |
+| public_table_columns | public       | campaigns             | custom_system_instruction     | text                     |
+| public_table_columns | public       | campaigns             | custom_voice_name             | text                     |
+| public_table_columns | public       | campaigns             | days_of_week                  | ARRAY                    |
+| public_table_columns | public       | campaigns             | description                   | text                     |
+| public_table_columns | public       | campaigns             | end_time                      | time without time zone   |
+| public_table_columns | public       | campaigns             | id                            | uuid                     |
+| public_table_columns | public       | campaigns             | leads_answered                | integer                  |
+| public_table_columns | public       | campaigns             | leads_called                  | integer                  |
+| public_table_columns | public       | campaigns             | leads_completed               | integer                  |
+| public_table_columns | public       | campaigns             | leads_total                   | integer                  |
+| public_table_columns | public       | campaigns             | max_concurrent_calls          | integer                  |
+| public_table_columns | public       | campaigns             | name                          | text                     |
+| public_table_columns | public       | campaigns             | priority                      | text                     |
+| public_table_columns | public       | campaigns             | profile_id                    | uuid                     |
+| public_table_columns | public       | campaigns             | retry_attempts                | integer                  |
+| public_table_columns | public       | campaigns             | retry_delay_minutes           | integer                  |
+| public_table_columns | public       | campaigns             | scheduled_end_date            | timestamp with time zone |
+| public_table_columns | public       | campaigns             | scheduled_start_date          | timestamp with time zone |
+| public_table_columns | public       | campaigns             | script                        | text                     |
+| public_table_columns | public       | campaigns             | start_time                    | time without time zone   |
+| public_table_columns | public       | campaigns             | status                        | text                     |
+| public_table_columns | public       | campaigns             | target_audience               | text                     |
+| public_table_columns | public       | campaigns             | timezone                      | text                     |
+| public_table_columns | public       | campaigns             | total_leads                   | integer                  |
+| public_table_columns | public       | campaigns             | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | compliance_reports    | generated_at                  | timestamp with time zone |
+| public_table_columns | public       | compliance_reports    | generated_by                  | uuid                     |
+| public_table_columns | public       | compliance_reports    | id                            | uuid                     |
+| public_table_columns | public       | compliance_reports    | profile_id                    | uuid                     |
+| public_table_columns | public       | compliance_reports    | report_data                   | jsonb                    |
+| public_table_columns | public       | compliance_reports    | report_period_end             | timestamp with time zone |
+| public_table_columns | public       | compliance_reports    | report_period_start           | timestamp with time zone |
+| public_table_columns | public       | compliance_reports    | report_type                   | text                     |
+| public_table_columns | public       | dialer_queue          | agent_id                      | uuid                     |
+| public_table_columns | public       | dialer_queue          | campaign_id                   | uuid                     |
+| public_table_columns | public       | dialer_queue          | completed_at                  | timestamp with time zone |
+| public_table_columns | public       | dialer_queue          | created_at                    | timestamp with time zone |
+| public_table_columns | public       | dialer_queue          | id                            | uuid                     |
+| public_table_columns | public       | dialer_queue          | last_error                    | text                     |
+| public_table_columns | public       | dialer_queue          | lead_id                       | uuid                     |
+| public_table_columns | public       | dialer_queue          | metadata                      | jsonb                    |
+| public_table_columns | public       | dialer_queue          | priority                      | USER-DEFINED             |
+| public_table_columns | public       | dialer_queue          | profile_id                    | uuid                     |
+| public_table_columns | public       | dialer_queue          | retry_count                   | integer                  |
+| public_table_columns | public       | dialer_queue          | scheduled_at                  | timestamp with time zone |
+| public_table_columns | public       | dialer_queue          | started_at                    | timestamp with time zone |
+| public_table_columns | public       | dialer_queue          | status                        | text                     |
+| public_table_columns | public       | dialer_queue          | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | dnc_entries           | added_date                    | timestamp with time zone |
+| public_table_columns | public       | dnc_entries           | created_at                    | timestamp with time zone |
+| public_table_columns | public       | dnc_entries           | expiry_date                   | timestamp with time zone |
+| public_table_columns | public       | dnc_entries           | id                            | uuid                     |
+| public_table_columns | public       | dnc_entries           | is_active                     | boolean                  |
+| public_table_columns | public       | dnc_entries           | notes                         | text                     |
+| public_table_columns | public       | dnc_entries           | phone_number                  | text                     |
+| public_table_columns | public       | dnc_entries           | profile_id                    | uuid                     |
+| public_table_columns | public       | dnc_entries           | source                        | text                     |
+| public_table_columns | public       | dnc_list              | added_date                    | timestamp with time zone |
+| public_table_columns | public       | dnc_list              | created_at                    | timestamp with time zone |
+| public_table_columns | public       | dnc_list              | expiry_date                   | timestamp with time zone |
+| public_table_columns | public       | dnc_list              | id                            | uuid                     |
+| public_table_columns | public       | dnc_list              | is_active                     | boolean                  |
+| public_table_columns | public       | dnc_list              | notes                         | text                     |
+| public_table_columns | public       | dnc_list              | phone_number                  | text                     |
+| public_table_columns | public       | dnc_list              | profile_id                    | uuid                     |
+| public_table_columns | public       | dnc_list              | source                        | text                     |
+| public_table_columns | public       | dnc_lists             | added_date                    | timestamp with time zone |
+| public_table_columns | public       | dnc_lists             | created_at                    | timestamp with time zone |
+| public_table_columns | public       | dnc_lists             | expiry_date                   | timestamp with time zone |
+| public_table_columns | public       | dnc_lists             | id                            | uuid                     |
+| public_table_columns | public       | dnc_lists             | is_active                     | boolean                  |
+| public_table_columns | public       | dnc_lists             | notes                         | text                     |
+| public_table_columns | public       | dnc_lists             | phone_number                  | text                     |
+| public_table_columns | public       | dnc_lists             | profile_id                    | uuid                     |
+| public_table_columns | public       | dnc_lists             | reason                        | text                     |
+| public_table_columns | public       | dnc_lists             | source                        | text                     |
+| public_table_columns | public       | external_integrations | auth_token                    | text                     |
+| public_table_columns | public       | external_integrations | created_at                    | timestamp with time zone |
+| public_table_columns | public       | external_integrations | endpoint_url                  | text                     |
+| public_table_columns | public       | external_integrations | id                            | uuid                     |
+| public_table_columns | public       | external_integrations | integration_type              | text                     |
+| public_table_columns | public       | external_integrations | is_active                     | boolean                  |
+| public_table_columns | public       | external_integrations | name                          | text                     |
+| public_table_columns | public       | external_integrations | profile_id                    | uuid                     |
+| public_table_columns | public       | external_integrations | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | function_call_logs    | call_id                       | text                     |
+| public_table_columns | public       | function_call_logs    | created_at                    | timestamp with time zone |
+| public_table_columns | public       | function_call_logs    | error_message                 | text                     |
+| public_table_columns | public       | function_call_logs    | execution_time_ms             | integer                  |
+| public_table_columns | public       | function_call_logs    | function_name                 | text                     |
+| public_table_columns | public       | function_call_logs    | id                            | uuid                     |
+| public_table_columns | public       | function_call_logs    | parameters                    | jsonb                    |
+| public_table_columns | public       | function_call_logs    | profile_id                    | uuid                     |
+| public_table_columns | public       | function_call_logs    | result                        | jsonb                    |
+| public_table_columns | public       | function_call_logs    | success                       | boolean                  |
+| public_table_columns | public       | ghl_contacts          | contact_data                  | jsonb                    |
+| public_table_columns | public       | ghl_contacts          | created_at                    | timestamp with time zone |
+| public_table_columns | public       | ghl_contacts          | ghl_contact_id                | character varying        |
+| public_table_columns | public       | ghl_contacts          | id                            | uuid                     |
+| public_table_columns | public       | ghl_contacts          | integration_id                | uuid                     |
+| public_table_columns | public       | ghl_contacts          | last_synced_at                | timestamp with time zone |
+| public_table_columns | public       | ghl_contacts          | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | ghl_function_calls    | created_at                    | timestamp with time zone |
+| public_table_columns | public       | ghl_function_calls    | function_name                 | text                     |
+| public_table_columns | public       | ghl_function_calls    | id                            | uuid                     |
+| public_table_columns | public       | ghl_function_calls    | parameters                    | jsonb                    |
+| public_table_columns | public       | ghl_function_calls    | profile_id                    | uuid                     |
+| public_table_columns | public       | ghl_function_calls    | result                        | jsonb                    |
+| public_table_columns | public       | ghl_function_calls    | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | integration_settings  | api_key                       | text                     |
+| public_table_columns | public       | integration_settings  | created_at                    | timestamp with time zone |
+| public_table_columns | public       | integration_settings  | id                            | uuid                     |
+| public_table_columns | public       | integration_settings  | integration_type              | text                     |
+| public_table_columns | public       | integration_settings  | is_active                     | boolean                  |
+| public_table_columns | public       | integration_settings  | profile_id                    | uuid                     |
+| public_table_columns | public       | integration_settings  | service                       | text                     |
+| public_table_columns | public       | integration_settings  | settings                      | jsonb                    |
+| public_table_columns | public       | integration_settings  | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | integration_settings  | webhook_url                   | text                     |
+| public_table_columns | public       | integrations          | created_at                    | timestamp with time zone |
+| public_table_columns | public       | integrations          | credentials                   | jsonb                    |
+| public_table_columns | public       | integrations          | id                            | uuid                     |
+| public_table_columns | public       | integrations          | type                          | character varying        |
+| public_table_columns | public       | integrations          | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | integrations          | user_id                       | uuid                     |
+| public_table_columns | public       | ivr_menus             | created_at                    | timestamp with time zone |
+| public_table_columns | public       | ivr_menus             | greeting_text                 | text                     |
+| public_table_columns | public       | ivr_menus             | id                            | uuid                     |
+| public_table_columns | public       | ivr_menus             | is_active                     | boolean                  |
+| public_table_columns | public       | ivr_menus             | name                          | text                     |
+| public_table_columns | public       | ivr_menus             | profile_id                    | uuid                     |
+| public_table_columns | public       | ivr_menus             | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | ivr_options           | action_type                   | text                     |
+| public_table_columns | public       | ivr_options           | agent_id                      | uuid                     |
+| public_table_columns | public       | ivr_options           | created_at                    | timestamp with time zone |
+| public_table_columns | public       | ivr_options           | description                   | text                     |
+| public_table_columns | public       | ivr_options           | digit                         | text                     |
+| public_table_columns | public       | ivr_options           | id                            | uuid                     |
+| public_table_columns | public       | ivr_options           | ivr_menu_id                   | uuid                     |
+| public_table_columns | public       | ivr_options           | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | knowledge_base        | agent_id                      | uuid                     |
+| public_table_columns | public       | knowledge_base        | category                      | text                     |
+| public_table_columns | public       | knowledge_base        | content                       | text                     |
+| public_table_columns | public       | knowledge_base        | created_at                    | timestamp with time zone |
+| public_table_columns | public       | knowledge_base        | id                            | uuid                     |
+| public_table_columns | public       | knowledge_base        | is_active                     | boolean                  |
+| public_table_columns | public       | knowledge_base        | profile_id                    | uuid                     |
+| public_table_columns | public       | knowledge_base        | tags                          | ARRAY                    |
+| public_table_columns | public       | knowledge_base        | title                         | text                     |
+| public_table_columns | public       | knowledge_base        | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | leads                 | call_attempts                 | integer                  |
+| public_table_columns | public       | leads                 | campaign_id                   | uuid                     |
+| public_table_columns | public       | leads                 | company                       | text                     |
+| public_table_columns | public       | leads                 | created_at                    | timestamp with time zone |
+| public_table_columns | public       | leads                 | custom_fields                 | jsonb                    |
+| public_table_columns | public       | leads                 | do_not_call                   | boolean                  |
+| public_table_columns | public       | leads                 | email                         | text                     |
+| public_table_columns | public       | leads                 | first_name                    | text                     |
+| public_table_columns | public       | leads                 | id                            | uuid                     |
+| public_table_columns | public       | leads                 | last_call_at                  | timestamp with time zone |
+| public_table_columns | public       | leads                 | last_name                     | text                     |
+| public_table_columns | public       | leads                 | metadata                      | jsonb                    |
+| public_table_columns | public       | leads                 | next_call_at                  | timestamp with time zone |
+| public_table_columns | public       | leads                 | notes                         | text                     |
+| public_table_columns | public       | leads                 | outcome                       | text                     |
+| public_table_columns | public       | leads                 | phone_number                  | text                     |
+| public_table_columns | public       | leads                 | preferred_call_time           | time without time zone   |
+| public_table_columns | public       | leads                 | priority                      | USER-DEFINED             |
+| public_table_columns | public       | leads                 | status                        | USER-DEFINED             |
+| public_table_columns | public       | leads                 | tags                          | ARRAY                    |
+| public_table_columns | public       | leads                 | timezone                      | text                     |
+| public_table_columns | public       | leads                 | title                         | text                     |
+| public_table_columns | public       | leads                 | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | live_calls            | agent_id                      | uuid                     |
+| public_table_columns | public       | live_calls            | agent_name                    | character varying        |
+| public_table_columns | public       | live_calls            | call_id                       | uuid                     |
+| public_table_columns | public       | live_calls            | call_log_id                   | uuid                     |
+| public_table_columns | public       | live_calls            | call_quality                  | text                     |
+| public_table_columns | public       | live_calls            | created_at                    | timestamp with time zone |
+| public_table_columns | public       | live_calls            | customer_name                 | text                     |
+| public_table_columns | public       | live_calls            | customer_phone                | character varying        |
+| public_table_columns | public       | live_calls            | direction                     | USER-DEFINED             |
+| public_table_columns | public       | live_calls            | id                            | uuid                     |
+| public_table_columns | public       | live_calls            | last_updated                  | timestamp with time zone |
+| public_table_columns | public       | live_calls            | metadata                      | jsonb                    |
+| public_table_columns | public       | live_calls            | phone_number_from             | text                     |
+| public_table_columns | public       | live_calls            | phone_number_to               | text                     |
+| public_table_columns | public       | live_calls            | profile_id                    | uuid                     |
+| public_table_columns | public       | live_calls            | started_at                    | timestamp with time zone |
+| public_table_columns | public       | live_calls            | status                        | text                     |
+| public_table_columns | public       | outbound_campaigns    | agent_id                      | uuid                     |
+| public_table_columns | public       | outbound_campaigns    | call_timeout_seconds          | integer                  |
+| public_table_columns | public       | outbound_campaigns    | caller_id                     | text                     |
+| public_table_columns | public       | outbound_campaigns    | compliance_settings           | jsonb                    |
+| public_table_columns | public       | outbound_campaigns    | created_at                    | timestamp with time zone |
+| public_table_columns | public       | outbound_campaigns    | custom_system_instruction     | text                     |
+| public_table_columns | public       | outbound_campaigns    | custom_voice_name             | USER-DEFINED             |
+| public_table_columns | public       | outbound_campaigns    | days_of_week                  | ARRAY                    |
+| public_table_columns | public       | outbound_campaigns    | description                   | text                     |
+| public_table_columns | public       | outbound_campaigns    | end_time                      | time without time zone   |
+| public_table_columns | public       | outbound_campaigns    | id                            | uuid                     |
+| public_table_columns | public       | outbound_campaigns    | leads_answered                | integer                  |
+| public_table_columns | public       | outbound_campaigns    | leads_called                  | integer                  |
+| public_table_columns | public       | outbound_campaigns    | leads_completed               | integer                  |
+| public_table_columns | public       | outbound_campaigns    | max_concurrent_calls          | integer                  |
+| public_table_columns | public       | outbound_campaigns    | name                          | text                     |
+| public_table_columns | public       | outbound_campaigns    | priority                      | USER-DEFINED             |
+| public_table_columns | public       | outbound_campaigns    | profile_id                    | uuid                     |
+| public_table_columns | public       | outbound_campaigns    | retry_attempts                | integer                  |
+| public_table_columns | public       | outbound_campaigns    | retry_delay_minutes           | integer                  |
+| public_table_columns | public       | outbound_campaigns    | scheduled_end_date            | timestamp with time zone |
+| public_table_columns | public       | outbound_campaigns    | scheduled_start_date          | timestamp with time zone |
+| public_table_columns | public       | outbound_campaigns    | script                        | text                     |
+| public_table_columns | public       | outbound_campaigns    | start_time                    | time without time zone   |
+| public_table_columns | public       | outbound_campaigns    | status                        | USER-DEFINED             |
+| public_table_columns | public       | outbound_campaigns    | timezone                      | text                     |
+| public_table_columns | public       | outbound_campaigns    | total_leads                   | integer                  |
+| public_table_columns | public       | outbound_campaigns    | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | phone_numbers         | agent_id                      | uuid                     |
+| public_table_columns | public       | phone_numbers         | created_at                    | timestamp with time zone |
+| public_table_columns | public       | phone_numbers         | friendly_name                 | text                     |
+| public_table_columns | public       | phone_numbers         | id                            | uuid                     |
+| public_table_columns | public       | phone_numbers         | is_active                     | boolean                  |
+| public_table_columns | public       | phone_numbers         | is_primary                    | boolean                  |
+| public_table_columns | public       | phone_numbers         | phone_number                  | text                     |
+| public_table_columns | public       | phone_numbers         | profile_id                    | uuid                     |
+| public_table_columns | public       | phone_numbers         | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | profiles              | call_recording_enabled        | boolean                  |
+| public_table_columns | public       | profiles              | can_use_inbound               | boolean                  |
+| public_table_columns | public       | profiles              | can_use_outbound_dialer       | boolean                  |
+| public_table_columns | public       | profiles              | client_name                   | text                     |
+| public_table_columns | public       | profiles              | company_name                  | text                     |
+| public_table_columns | public       | profiles              | created_at                    | timestamp with time zone |
+| public_table_columns | public       | profiles              | email                         | text                     |
+| public_table_columns | public       | profiles              | full_name                     | text                     |
+| public_table_columns | public       | profiles              | gemini_api_key                | text                     |
+| public_table_columns | public       | profiles              | gemini_model                  | text                     |
+| public_table_columns | public       | profiles              | id                            | uuid                     |
+| public_table_columns | public       | profiles              | is_active                     | boolean                  |
+| public_table_columns | public       | profiles              | max_concurrent_calls          | integer                  |
+| public_table_columns | public       | profiles              | minutes_used                  | integer                  |
+| public_table_columns | public       | profiles              | monthly_minute_limit          | integer                  |
+| public_table_columns | public       | profiles              | permissions                   | jsonb                    |
+| public_table_columns | public       | profiles              | phone_number                  | text                     |
+| public_table_columns | public       | profiles              | plan_name                     | USER-DEFINED             |
+| public_table_columns | public       | profiles              | routing_strategy              | text                     |
+| public_table_columns | public       | profiles              | transcription_enabled         | boolean                  |
+| public_table_columns | public       | profiles              | twilio_account_sid            | text                     |
+| public_table_columns | public       | profiles              | twilio_auth_token             | text                     |
+| public_table_columns | public       | profiles              | twilio_phone_number           | text                     |
+| public_table_columns | public       | profiles              | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | profiles              | usage_cap                     | integer                  |
+| public_table_columns | public       | profiles              | used_minutes                  | integer                  |
+| public_table_columns | public       | profiles              | user_id                       | uuid                     |
+| public_table_columns | public       | subscriptions         | cancel_at_period_end          | boolean                  |
+| public_table_columns | public       | subscriptions         | created_at                    | timestamp with time zone |
+| public_table_columns | public       | subscriptions         | current_period_end            | timestamp with time zone |
+| public_table_columns | public       | subscriptions         | current_period_start          | timestamp with time zone |
+| public_table_columns | public       | subscriptions         | id                            | uuid                     |
+| public_table_columns | public       | subscriptions         | plan_name                     | text                     |
+| public_table_columns | public       | subscriptions         | plan_type                     | character varying        |
+| public_table_columns | public       | subscriptions         | profile_id                    | uuid                     |
+| public_table_columns | public       | subscriptions         | status                        | text                     |
+| public_table_columns | public       | subscriptions         | stripe_customer_id            | text                     |
+| public_table_columns | public       | subscriptions         | stripe_subscription_id        | text                     |
+| public_table_columns | public       | subscriptions         | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | system_metrics        | agent_id                      | uuid                     |
+| public_table_columns | public       | system_metrics        | id                            | uuid                     |
+| public_table_columns | public       | system_metrics        | metadata                      | jsonb                    |
+| public_table_columns | public       | system_metrics        | metric_name                   | text                     |
+| public_table_columns | public       | system_metrics        | metric_unit                   | text                     |
+| public_table_columns | public       | system_metrics        | metric_value                  | real                     |
+| public_table_columns | public       | system_metrics        | profile_id                    | uuid                     |
+| public_table_columns | public       | system_metrics        | recorded_at                   | timestamp with time zone |
+| public_table_columns | public       | system_status         | created_at                    | timestamp with time zone |
+| public_table_columns | public       | system_status         | id                            | uuid                     |
+| public_table_columns | public       | system_status         | message                       | text                     |
+| public_table_columns | public       | system_status         | resolved_at                   | timestamp with time zone |
+| public_table_columns | public       | system_status         | service_name                  | text                     |
+| public_table_columns | public       | system_status         | started_at                    | timestamp with time zone |
+| public_table_columns | public       | system_status         | status                        | text                     |
+| public_table_columns | public       | usage_records         | billing_period_end            | timestamp with time zone |
+| public_table_columns | public       | usage_records         | billing_period_start          | timestamp with time zone |
+| public_table_columns | public       | usage_records         | created_at                    | timestamp with time zone |
+| public_table_columns | public       | usage_records         | id                            | uuid                     |
+| public_table_columns | public       | usage_records         | profile_id                    | uuid                     |
+| public_table_columns | public       | usage_records         | quantity                      | integer                  |
+| public_table_columns | public       | usage_records         | subscription_id               | uuid                     |
+| public_table_columns | public       | usage_records         | total_cost                    | numeric                  |
+| public_table_columns | public       | usage_records         | unit_price                    | numeric                  |
+| public_table_columns | public       | usage_records         | usage_type                    | text                     |
+| public_table_columns | public       | users                 | allowed_features              | ARRAY                    |
+| public_table_columns | public       | users                 | created_at                    | timestamp with time zone |
+| public_table_columns | public       | users                 | email                         | text                     |
+| public_table_columns | public       | users                 | id                            | uuid                     |
+| public_table_columns | public       | users                 | max_agents                    | integer                  |
+| public_table_columns | public       | users                 | minutes_limit                 | integer                  |
+| public_table_columns | public       | users                 | minutes_used                  | integer                  |
+| public_table_columns | public       | users                 | role                          | text                     |
+| public_table_columns | public       | users                 | subscription_plan             | text                     |
+| public_table_columns | public       | users                 | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | webhook_deliveries    | delivered_at                  | timestamp with time zone |
+| public_table_columns | public       | webhook_deliveries    | event_type                    | text                     |
+| public_table_columns | public       | webhook_deliveries    | id                            | uuid                     |
+| public_table_columns | public       | webhook_deliveries    | payload                       | jsonb                    |
+| public_table_columns | public       | webhook_deliveries    | response_body                 | text                     |
+| public_table_columns | public       | webhook_deliveries    | response_status               | integer                  |
+| public_table_columns | public       | webhook_deliveries    | success                       | boolean                  |
+| public_table_columns | public       | webhook_deliveries    | webhook_id                    | uuid                     |
+| public_table_columns | public       | webhook_endpoints     | created_at                    | timestamp with time zone |
+| public_table_columns | public       | webhook_endpoints     | events                        | ARRAY                    |
+| public_table_columns | public       | webhook_endpoints     | failure_count                 | integer                  |
+| public_table_columns | public       | webhook_endpoints     | id                            | uuid                     |
+| public_table_columns | public       | webhook_endpoints     | is_active                     | boolean                  |
+| public_table_columns | public       | webhook_endpoints     | last_triggered_at             | timestamp with time zone |
+| public_table_columns | public       | webhook_endpoints     | name                          | text                     |
+| public_table_columns | public       | webhook_endpoints     | profile_id                    | uuid                     |
+| public_table_columns | public       | webhook_endpoints     | retry_attempts                | integer                  |
+| public_table_columns | public       | webhook_endpoints     | secret_key                    | text                     |
+| public_table_columns | public       | webhook_endpoints     | service                       | text                     |
+| public_table_columns | public       | webhook_endpoints     | success_count                 | integer                  |
+| public_table_columns | public       | webhook_endpoints     | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | webhook_endpoints     | url                           | text                     |
+| public_table_columns | public       | webhook_events        | agent_id                      | uuid                     |
+| public_table_columns | public       | webhook_events        | call_id                       | text                     |
+| public_table_columns | public       | webhook_events        | created_at                    | timestamp with time zone |
+| public_table_columns | public       | webhook_events        | event_data                    | jsonb                    |
+| public_table_columns | public       | webhook_events        | event_type                    | text                     |
+| public_table_columns | public       | webhook_events        | id                            | uuid                     |
+| public_table_columns | public       | webhook_events        | processed_at                  | timestamp with time zone |
+| public_table_columns | public       | webhook_events        | profile_id                    | uuid                     |
+| public_table_columns | public       | webhook_events        | webhook_response              | text                     |
+| public_table_columns | public       | webhook_events        | webhook_sent                  | boolean                  |
+| public_table_columns | public       | webhooks              | created_at                    | timestamp with time zone |
+| public_table_columns | public       | webhooks              | events                        | ARRAY                    |
+| public_table_columns | public       | webhooks              | id                            | uuid                     |
+| public_table_columns | public       | webhooks              | is_active                     | boolean                  |
+| public_table_columns | public       | webhooks              | name                          | text                     |
+| public_table_columns | public       | webhooks              | profile_id                    | uuid                     |
+| public_table_columns | public       | webhooks              | retry_attempts                | integer                  |
+| public_table_columns | public       | webhooks              | secret_key                    | text                     |
+| public_table_columns | public       | webhooks              | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | webhooks              | url                           | text                     |
+| public_table_columns | public       | zapier_function_calls | call_log_id                   | uuid                     |
+| public_table_columns | public       | zapier_function_calls | created_at                    | timestamp with time zone |
+| public_table_columns | public       | zapier_function_calls | error_message                 | text                     |
+| public_table_columns | public       | zapier_function_calls | executed_at                   | timestamp with time zone |
+| public_table_columns | public       | zapier_function_calls | function_name                 | text                     |
+| public_table_columns | public       | zapier_function_calls | id                            | uuid                     |
+| public_table_columns | public       | zapier_function_calls | integration_id                | uuid                     |
+| public_table_columns | public       | zapier_function_calls | parameters                    | jsonb                    |
+| public_table_columns | public       | zapier_function_calls | profile_id                    | uuid                     |
+| public_table_columns | public       | zapier_function_calls | response_data                 | jsonb                    |
+| public_table_columns | public       | zapier_function_calls | retry_count                   | integer                  |
+| public_table_columns | public       | zapier_function_calls | status                        | text                     |
+| public_table_columns | public       | zapier_integrations   | configuration                 | jsonb                    |
+| public_table_columns | public       | zapier_integrations   | created_at                    | timestamp with time zone |
+| public_table_columns | public       | zapier_integrations   | failure_reason                | text                     |
+| public_table_columns | public       | zapier_integrations   | function_name                 | text                     |
+| public_table_columns | public       | zapier_integrations   | id                            | uuid                     |
+| public_table_columns | public       | zapier_integrations   | integration_name              | text                     |
+| public_table_columns | public       | zapier_integrations   | is_active                     | boolean                  |
+| public_table_columns | public       | zapier_integrations   | last_failure_at               | timestamp with time zone |
+| public_table_columns | public       | zapier_integrations   | last_success_at               | timestamp with time zone |
+| public_table_columns | public       | zapier_integrations   | max_retries                   | integer                  |
+| public_table_columns | public       | zapier_integrations   | profile_id                    | uuid                     |
+| public_table_columns | public       | zapier_integrations   | retry_count                   | integer                  |
+| public_table_columns | public       | zapier_integrations   | trigger_events                | ARRAY                    |
+| public_table_columns | public       | zapier_integrations   | updated_at                    | timestamp with time zone |
+| public_table_columns | public       | zapier_integrations   | webhook_url                   | text                     |
+| table_map            | auth         | audit_log_entries     | null                          | null                     |
+| table_map            | auth         | flow_state            | null                          | null                     |
+| table_map            | auth         | identities            | null                          | null                     |
+| table_map            | auth         | instances             | null                          | null                     |
+| table_map            | auth         | mfa_amr_claims        | null                          | null                     |
+| table_map            | auth         | mfa_challenges        | null                          | null                     |
+| table_map            | auth         | mfa_factors           | null                          | null                     |
+| table_map            | auth         | one_time_tokens       | null                          | null                     |
+| table_map            | auth         | refresh_tokens        | null                          | null                     |
+| table_map            | auth         | saml_providers        | null                          | null                     |
+| table_map            | auth         | saml_relay_states     | null                          | null                     |
+| table_map            | auth         | schema_migrations     | null                          | null                     |
+| table_map            | auth         | sessions              | null                          | null                     |
+| table_map            | auth         | sso_domains           | null                          | null                     |
+| table_map            | auth         | sso_providers         | null                          | null                     |
+| table_map            | auth         | users                 | null                          | null                     |
+| table_map            | public       | admin_roles           | null                          | null                     |
+| table_map            | public       | agent_performance     | null                          | null                     |
+| table_map            | public       | agent_zaps            | null                          | null                     |
+| table_map            | public       | ai_agents             | null                          | null                     |
+| table_map            | public       | analytics_data        | null                          | null                     |
+| table_map            | public       | api_keys              | null                          | null                     |
+| table_map            | public       | appointments          | null                          | null                     |
+| table_map            | public       | billing               | null                          | null                     |
+| table_map            | public       | call_analytics        | null                          | null                     |
+| table_map            | public       | call_logs             | null                          | null                     |
+| table_map            | public       | call_queues           | null                          | null                     |
+| table_map            | public       | call_recordings       | null                          | null                     |
+| table_map            | public       | call_routing_rules    | null                          | null                     |
+| table_map            | public       | call_scripts          | null                          | null                     |
+| table_map            | public       | call_sessions         | null                          | null                     |
+| table_map            | public       | campaign_leads        | null                          | null                     |
+| table_map            | public       | campaign_metrics      | null                          | null                     |
+| table_map            | public       | campaigns             | null                          | null                     |
+| table_map            | public       | compliance_reports    | null                          | null                     |
+| table_map            | public       | dialer_queue          | null                          | null                     |
+| table_map            | public       | dnc_entries           | null                          | null                     |
+| table_map            | public       | dnc_list              | null                          | null                     |
+| table_map            | public       | dnc_lists             | null                          | null                     |
+| table_map            | public       | external_integrations | null                          | null                     |
+| table_map            | public       | function_call_logs    | null                          | null                     |
+| table_map            | public       | ghl_contacts          | null                          | null                     |
+| table_map            | public       | ghl_function_calls    | null                          | null                     |
+| table_map            | public       | integration_settings  | null                          | null                     |
+| table_map            | public       | integrations          | null                          | null                     |
+| table_map            | public       | ivr_menus             | null                          | null                     |
+| table_map            | public       | ivr_options           | null                          | null                     |
+| table_map            | public       | knowledge_base        | null                          | null                     |
+| table_map            | public       | leads                 | null                          | null                     |
+| table_map            | public       | live_calls            | null                          | null                     |
+| table_map            | public       | outbound_campaigns    | null                          | null                     |
+| table_map            | public       | phone_numbers         | null                          | null                     |
+| table_map            | public       | profiles              | null                          | null                     |
+| table_map            | public       | subscriptions         | null                          | null                     |
+| table_map            | public       | system_metrics        | null                          | null                     |
+| table_map            | public       | system_status         | null                          | null                     |
+| table_map            | public       | usage_records         | null                          | null                     |
+| table_map            | public       | users                 | null                          | null                     |
+| table_map            | public       | webhook_deliveries    | null                          | null                     |
+| table_map            | public       | webhook_endpoints     | null                          | null                     |
+| table_map            | public       | webhook_events        | null                          | null                     |
+| table_map            | public       | webhooks              | null                          | null                     |
+| table_map            | public       | zapier_function_calls | null                          | null                     |
+| table_map            | public       | zapier_integrations   | null                          | null                     |

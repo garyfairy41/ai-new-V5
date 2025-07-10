@@ -11,8 +11,6 @@ import CallsPage from './pages/CallsPage';
 import LiveCallsPage from './pages/LiveCallsPage';
 import AppointmentsPage from './pages/AppointmentsPage';
 import CampaignsPage from './pages/CampaignsPage';
-import EnhancedCampaignsPage from './pages/EnhancedCampaignsPage';
-import EnhancedDashboardPage from './pages/EnhancedDashboardPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import DNCPage from './pages/DNCPage';
 import WebhooksPage from './pages/WebhooksPage';
@@ -84,16 +82,6 @@ function AppContent() {
         <Route path="/campaigns" element={
           <ProtectedRoute requiredPermission="campaigns">
             <CampaignsPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/enhanced-campaigns" element={
-          <ProtectedRoute requiredPermission="campaigns">
-            <EnhancedCampaignsPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/enhanced-dashboard" element={
-          <ProtectedRoute requiredPermission="dashboard">
-            <EnhancedDashboardPage />
           </ProtectedRoute>
         } />
         <Route path="/analytics" element={

@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   UsersIcon, 
   ServerIcon, 
   ChartBarIcon, 
-  CogIcon,
   ExclamationTriangleIcon,
   CheckCircleIcon,
   XCircleIcon,

@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { DatabaseService } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
 
 interface ZapierWebhook {
@@ -9,6 +8,13 @@ interface ZapierWebhook {
   event_type: 'call_completed' | 'appointment_scheduled' | 'lead_updated' | 'follow_up_required';
   is_active: boolean;
   created_at: string;
+}
+
+interface WebhookFormData {
+  name: string;
+  webhook_url: string;
+  event_type: 'call_completed' | 'appointment_scheduled' | 'lead_updated' | 'follow_up_required';
+  is_active: boolean;
 }
 
 const EVENT_TYPE_OPTIONS = [
@@ -24,10 +30,10 @@ export default function ZapierIntegration() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingWebhook, setEditingWebhook] = useState<ZapierWebhook | null>(null);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<WebhookFormData>({
     name: '',
     webhook_url: '',
-    event_type: 'call_completed' as const,
+    event_type: 'call_completed',
     is_active: true
   });
 

@@ -37,7 +37,7 @@ export interface Profile {
   twilio_account_sid?: string
   twilio_auth_token?: string
   gemini_api_key?: string
-  gemini_model?: 'gemini-live-2.5-flash-preview' | 'gemini-2.0-flash-live-001' | 'gemini-2.5-flash-preview-native-audio-dialog'
+  gemini_model?: 'gemini-live-2.5-flash-preview' | 'gemini-2.0-flash-live-001' | 'gemini-2.5-flash-preview-native-audio-dialog' | 'gemini-2.5-flash-exp-native-audio-thinking-dialog'
   routing_strategy?: string
   call_recording_enabled?: boolean
   transcription_enabled?: boolean
@@ -149,7 +149,7 @@ export interface CallLog {
   tags?: string[]
   metadata?: Record<string, any>
   created_at: string
-  outbound_campaigns?: {
+  campaigns?: {
     name: string
   }
 }
@@ -191,19 +191,17 @@ export interface CampaignLead {
   first_name?: string
   last_name?: string
   email?: string
-  company?: string
-  title?: string
-  status: 'pending' | 'called' | 'answered' | 'no_answer' | 'busy' | 'failed' | 'completed'
-  priority: 'low' | 'normal' | 'high' | 'urgent'
+  address?: string
+  service_requested?: string
+  status: 'pending' | 'calling' | 'called' | 'completed' | 'failed' | 'dnc'
+  priority?: string
   call_attempts: number
-  last_call_at?: string
-  next_call_at?: string
-  outcome?: string
+  last_called_at?: string
+  next_retry_at?: string
+  outcome?: 'answered' | 'no_answer' | 'busy' | 'failed' | 'completed' | 'dnc'
   notes?: string
   custom_fields?: Record<string, any>
-  do_not_call: boolean
-  preferred_call_time?: string
-  timezone?: string
+  metadata?: Record<string, any>
   created_at: string
   updated_at: string
 }
@@ -283,8 +281,8 @@ export interface AnalyticsData {
   leadConversionRate?: number
   totalAgents?: number
   activeAgents?: number
-  agentUtilization?: number
-  avgSatisfactionScore?: number
+  totalCallsToday?: number
+  completedCalls?: number
 }
 
 export interface DNCEntry {
