@@ -11,6 +11,14 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# Large audio/media files
+*.wav
+*.mp3
+*.mp4
+*.avi
+*.mov
+Busy call centre sounds ambience for remote work and study (2hrs) - Sound Asleep.wav
+
 # Google API Credentials
 credentials.json
 
